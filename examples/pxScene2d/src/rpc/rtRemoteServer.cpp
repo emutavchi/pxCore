@@ -576,6 +576,7 @@ rtRemoteServer::onMethodCall(std::shared_ptr<rtRemoteClient>& client, rtJsonDocP
     else
     {
       func = rtObjectCache::findFunction(function_name->value.GetString());
+      // err = rtObjectCache::touch(function_name->value.GetString(), time(nullptr));
     }
 
     if (err == RT_OK && !!func)

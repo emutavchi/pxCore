@@ -8,6 +8,9 @@ rtRemoteFunction::rtRemoteFunction(std::string const& id, std::string const& nam
   , m_name(name)
   , m_rpc_client(client)
 {
+    if (!strcmp(id.c_str(), "global")) {
+        m_rpc_client->keepAlive(m_name);
+    }
 }
 
 rtRemoteFunction::~rtRemoteFunction()
