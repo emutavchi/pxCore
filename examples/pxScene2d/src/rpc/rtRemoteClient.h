@@ -41,6 +41,8 @@ public:
   inline void keepAlive(std::string const& s)
     { m_object_list.push_back(s); }
 
+  void removeKeepAlive(std::string const& s);
+
   rtError setMessageCallback(rtRemoteMessageHandler const& handler)
     { m_message_handler = handler; return RT_OK; } 
 

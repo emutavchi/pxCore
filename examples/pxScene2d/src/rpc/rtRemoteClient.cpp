@@ -16,6 +16,7 @@
 #include <string.h>
 #include <errno.h>
 
+#include <algorithm>
 #include <rapidjson/document.h>
 
 rtRemoteClient::rtRemoteClient(int fd, sockaddr_storage const& local_endpoint, sockaddr_storage const& remote_endpoint)
@@ -117,6 +118,11 @@ rtRemoteClient::startSession(std::string const& objectName, uint32_t timeout)
   }
 
   return res != nullptr ? RT_OK : RT_FAIL;
+}
+
+void rtRemoteClient::removeKeepAlive(std::string const& s) {
+    auto it = std::find(m_object_list.begin(), m_object_list.end(), s);
+    if (it != m_object_list.end()) m_object_list.erase(it);
 }
 
 rtError

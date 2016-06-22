@@ -211,11 +211,15 @@ rtRemoteServer::doAccept(int fd)
     rtLogWarn("error accepting new tcp connect. %s", rtStrError(e));
     return;
   }
-  rtLogInfo("new connection from %s with fd:%d", rtSocketToString(remote_endpoint).c_str(), ret);
 
   sockaddr_storage local_endpoint;
   memset(&local_endpoint, 0, sizeof(sockaddr_storage));
   rtGetSockName(fd, local_endpoint);
+
+  rtLogInfo("new connection from %s --> %s with fd:%d",
+            rtSocketToString(remote_endpoint).c_str(),
+            rtSocketToString(local_endpoint).c_str(),
+            ret);
 
   std::shared_ptr<rtRemoteClient> newClient(new rtRemoteClient(ret, local_endpoint, remote_endpoint));
   newClient->setMessageCallback(std::bind(&rtRemoteServer::onIncomingMessage, this, std::placeholders::_1, std::placeholders::_2));
@@ -333,8 +337,16 @@ rtError
 rtRemoteServer::openRpcListener()
 {
   int ret = 0;
+  char socket_path[108];
 
-  rtGetDefaultInterface(m_rpc_endpoint, 0);
+  if (getenv("RT_USE_TCP")) {
+      rtGetDefaultInterface(m_rpc_endpoint, 0);
+  } else {
+      snprintf(socket_path, sizeof(socket_path), "/tmp/test.rt.sock_%d", getpid());
+      struct sockaddr_un *un_addr = reinterpret_cast<sockaddr_un*>(&m_rpc_endpoint);
+      un_addr->sun_family = AF_UNIX;
+      strcpy(un_addr->sun_path, socket_path);
+  }
 
   m_listen_fd = socket(m_rpc_endpoint.ss_family, SOCK_STREAM, 0);
   if (m_listen_fd < 0)
@@ -346,6 +358,13 @@ rtRemoteServer::openRpcListener()
 
   fcntl(m_listen_fd, F_SETFD, fcntl(m_listen_fd, F_GETFD) | FD_CLOEXEC);
 
+  if (m_rpc_endpoint.ss_family == AF_UNIX) {
+      unlink(socket_path);
+  } else {
+      uint32_t one = 1;
+      if (-1 == setsockopt(m_listen_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one)))
+          rtLogError("setting TCP_NODELAY failed");
+  }
 
   socklen_t len;
   rtSocketGetLength(m_rpc_endpoint, &len);
@@ -576,6 +595,7 @@ rtRemoteServer::onMethodCall(std::shared_ptr<rtRemoteClient>& client, rtJsonDocP
     else
     {
       func = rtObjectCache::findFunction(function_name->value.GetString());
+      // err = rtObjectCache::touch(function_name->value.GetString(), time(nullptr));
     }
 
     if (err == RT_OK && !!func)
@@ -656,5 +676,12 @@ rtRemoteServer::onKeepAlive(std::shared_ptr<rtRemoteClient>& client, rtJsonDocPt
 rtError
 rtRemoteServer::removeStaleObjects()
 {
+  for (auto itr = m_object_map.begin(); itr != m_object_map.end();)
+  {
+    if (itr->second.use_count() == 1)
+      itr = m_object_map.erase(itr);
+    else
+      ++itr;
+  }
   return rtObjectCache::removeUnused(); // m_keep_alive_interval, num_removed);
 }

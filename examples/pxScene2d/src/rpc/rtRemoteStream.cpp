@@ -24,6 +24,12 @@ public:
     }
   }
 
+  ~rtRemoteStreamSelector()
+  {
+    if (m_thread)
+      shutdown();
+  }
+
   rtError start()
   {
     m_thread.reset(new std::thread(&rtRemoteStreamSelector::pollFds, this));
@@ -61,6 +67,8 @@ public:
 private:
   rtError pollFds()
   {
+    time_t last_keep_alive = time(0);
+
     rtSocketBuffer buff;
     buff.reserve(1024 * 1024);
     buff.resize(1024 * 1024);
@@ -113,8 +121,10 @@ private:
           if (e != RT_OK)
             m_streams[i].reset();
         }
-        else if (now - s->m_last_message_time > 2)
+
+        if (s && (now - last_keep_alive > 10))
         {
+          last_keep_alive = time(0);
           e = s->onInactivity(now);
           if (e != RT_OK)
             m_streams[i].reset();
@@ -273,6 +283,12 @@ rtRemoteStream::connectTo(sockaddr_storage const& endpoint)
     return e;
   }
   fcntl(m_fd, F_SETFD, fcntl(m_fd, F_GETFD) | FD_CLOEXEC);
+
+  if (endpoint.ss_family != AF_UNIX) {
+      uint32_t one = 1;
+      if (-1 == setsockopt(m_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one)))
+          rtLogError("setting TCP_NODELAY failed");
+  }
 
   socklen_t len;
   rtSocketGetLength(endpoint, &len);
