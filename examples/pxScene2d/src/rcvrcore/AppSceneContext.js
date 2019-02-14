@@ -20,6 +20,7 @@ limitations under the License.
 
 var isDuk=(typeof Duktape != "undefined")?true:false;
 var isV8=(typeof _isV8 != "undefined")?true:false;
+var isJSC = (typeof _isJSC != "undefined")?true:false;
 
 var url = require('url');
 var path = require('path');
@@ -61,7 +62,7 @@ function AppSceneContext(params) {
   this.scriptMap = {};
   this.xmoduleMap = {};
   this.asyncFileAcquisition = new AsyncFileAcquisition(params.scene);
-  this.lastHrTime = isDuk?uv.hrtime():(isV8?uv_hrtime():process.hrtime());
+  this.lastHrTime = isDuk?uv.hrtime():((isV8||isJSC)?uv_hrtime():process.hrtime());
   this.resizeTimer = null;
   this.topXModule = null;
   this.jarFileMap = new JarFileMap();
@@ -88,7 +89,7 @@ AppSceneContext.prototype.loadScene = function() {
   var thisPackageUrl = this.packageUrl.split('?')[0];
   var urlParts = url.parse(thisPackageUrl, true);
   var fullPath = thisPackageUrl;
-  var platform = (isDuk)?uv.platform:(isV8?uv_platform():process.platform);
+  var platform = (isDuk)?uv.platform:((isV8||isJSC)?uv_platform():process.platform);
   if (fullPath.substring(0, 4) !== "http") {
     if( fullPath.charAt(0) === '.' ) {
       // local file system
@@ -335,7 +336,7 @@ AppSceneContext.prototype.runScriptInNewVMContext = function (packageUri, module
   var self = this;
   var newSandbox;
   try {
-    if (!isDuk && !isV8) {
+    if (!isDuk && !isV8 && !isJSC) {
       var requireMethod = function (pkg) {
         if (typeof requireIt === "function") { 
           // TODO: remove
@@ -358,13 +359,13 @@ AppSceneContext.prototype.runScriptInNewVMContext = function (packageUri, module
 
       var fs = require("fs");
       var requireEnableFile = requireEnableFilePath + "/.pxsceneEnableRequire";
-      if (fs.existsSync(requireEnableFile)) {
+      if (fs && fs.existsSync(requireEnableFile)) {
         console.log("enabling pxscene require support");
         requireMethod = require;
       }
     }
 
-    if (!isDuk && !isV8) {
+    if (!isDuk && !isV8 && !isJSC) {
       var processWrap = WrapObj(process, {"binding":function() { throw new Error("process.binding is not supported"); }});
       var globalWrap = WrapObj(global, {"process":processWrap});
 
@@ -482,7 +483,7 @@ AppSceneContext.prototype.runScriptInNewVMContext = function (packageUri, module
         'exports'
       ]);
 
-      if (isDuk) {
+      if (isDuk || isJSC) {
         vm.runInNewContext(sourceCode, newSandbox, {
           filename: path.normalize(fname),
           displayErrors: true
@@ -572,7 +573,7 @@ if (false) {
 AppSceneContext.prototype.getPackageBaseFilePath = function() {
   var fullPath;
   var pkgPart;
-  var platform = (isDuk)?uv.platform:(isV8?uv_platform():process.platform);
+  var platform = (isDuk)?uv.platform:((isV8||isJSC)?uv_platform():process.platform);
   if (this.basePackageUri.substring(0, 4) !== "http") {
     if (this.basePackageUri.charAt(0) == '.') {
       pkgPart = this.basePackageUri.substring(1);
@@ -813,10 +814,10 @@ AppSceneContext.prototype.processCodeBuffer = function(origFilePath, filePath, c
     'exports'
   ]);
 
-  if (isDuk) {
+  if (isDuk||isJSC) {
     vm.runInNewContext(sourceCode, _this.sandbox, { filename: filePath, displayErrors: true },
                          px, xModule_wrap, filePath, filePath);
-  } else if (isV8) {
+  } else if (isV8||isJSC) {
     var moduleFunc = vm.runInNewContext(sourceCode, _this.sandbox, { filename: filePath, displayErrors: true },
                          px, xModule_wrap, filePath, filePath);
 
@@ -854,9 +855,9 @@ AppSceneContext.prototype.processCodeBuffer = function(origFilePath, filePath, c
 };
 
 AppSceneContext.prototype.onResize = function(resizeEvent) {
-  var hrTime = isDuk?uv.hrtime():(isV8?uv_hrtime():process.hrtime(this.lastHrTime));
+  var hrTime = isDuk?uv.hrtime():((isV8||isJSC)?uv_hrtime():process.hrtime(this.lastHrTime));
   var deltaMillis = (hrTime[0] * 1000 + hrTime[1] / 1000000);
-  this.lastHrTime = isDuk?uv.hrtime():(isV8?uv_hrtime():process.hrtime());
+  this.lastHrTime = isDuk?uv.hrtime():((isV8||isJSC)?uv_hrtime():process.hrtime());
   if( deltaMillis > 300 ) {
     if( this.resizeTimer !== null ) {
       clearTimeout(this.resizeTimer);

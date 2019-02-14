@@ -18,6 +18,7 @@ limitations under the License.
 
 var isDuk=(typeof Duktape != "undefined")?true:false;
 var isV8 = (typeof _isV8 != "undefined")?true:false;
+var isJSC = (typeof _isJSC != "undefined")?true:false;
 
 px.import({ scene: 'px:scene.1.js',
              keys: 'px:tools.keys.js',
@@ -36,7 +37,7 @@ px.import({ scene: 'px:scene.1.js',
       console.log("Received uncaught rejection.... " + err);
     }
   }
-  if (!isDuk && !isV8) {
+  if (!isDuk && !isV8 && !isJSC) {
     process.on('uncaughtException', uncaughtException);
     process.on('unhandledRejection', unhandledRejection);
   }
@@ -131,7 +132,7 @@ if( scene.capabilities != undefined && scene.capabilities.graphics != undefined 
     var code  = e.keyCode;
     var flags = e.flags;
 
-    var loggingDisabled = process.env.PXSCENE_KEY_LOGGING_DISABLED;
+    var loggingDisabled = !isJSC && process.env.PXSCENE_KEY_LOGGING_DISABLED;
     if (loggingDisabled && loggingDisabled === '1'){
       console.log("onPreKeyDown value hidden");
     } else {
@@ -159,7 +160,7 @@ if( scene.capabilities != undefined && scene.capabilities.graphics != undefined 
       else
       if (code == keys.S)  // ctrl-alt-s
       {
-        if (!isDuk && !isV8) {
+        if (!isDuk && !isV8 && !isJSC) {
         // This returns a data URI string with the image data
         var dataURI = scene.screenshot('image/png;base64');
 
@@ -224,7 +225,7 @@ if( scene.capabilities != undefined && scene.capabilities.graphics != undefined 
 
   scene.root.on("onPreKeyUp", function(e)
   {
-    var loggingDisabled = process.env.PXSCENE_KEY_LOGGING_DISABLED;
+    var loggingDisabled = !isJSC && process.env.PXSCENE_KEY_LOGGING_DISABLED;
     if (loggingDisabled && loggingDisabled === '1'){
       console.log("onPreKeyUp value hidden");
     } else {
@@ -254,7 +255,7 @@ if( scene.capabilities != undefined && scene.capabilities.graphics != undefined 
     scene.root.on("onKeyDown", function(e)
     {
       var code = e.keyCode; var flags = e.flags;
-      var loggingDisabled = process.env.PXSCENE_KEY_LOGGING_DISABLED;
+      var loggingDisabled = !isJSC && process.env.PXSCENE_KEY_LOGGING_DISABLED;
       if (loggingDisabled && loggingDisabled === '1'){
         console.log("onKeyDown value hidden");
       } else {
@@ -285,7 +286,7 @@ if( scene.capabilities != undefined && scene.capabilities.graphics != undefined 
   {
     console.log("in onchar");
     var c = e.charCode;
-    var loggingDisabled = process.env.PXSCENE_KEY_LOGGING_DISABLED;
+    var loggingDisabled = !isJSC && process.env.PXSCENE_KEY_LOGGING_DISABLED;
     if (loggingDisabled && loggingDisabled === '1'){
       console.log("onChar value hidden");
     } else {
@@ -331,7 +332,7 @@ if( scene.capabilities != undefined && scene.capabilities.graphics != undefined 
   */
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   function releaseResources() {
-    if (!isDuk && !isV8) {
+    if (!isDuk && !isV8 && !isJSC) {
         process.removeListener("uncaughtException", uncaughtException);
         process.removeListener("unhandledRejection", unhandledRejection);
     }

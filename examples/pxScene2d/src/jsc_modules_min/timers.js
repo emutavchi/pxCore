@@ -1,0 +1,1 @@
+"use strict";function setTimeout(a,b,c,d,e){return 0}function clearTimeout(a){}function setInterval(a,b,c,d,e){return 0}function clearInterval(a){}module.exports={setTimeout:setTimeout,clearTimeout:clearTimeout,setInterval:setInterval,clearInterval:clearInterval};
