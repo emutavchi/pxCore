@@ -18,6 +18,7 @@ include(${PXCOREDIR}/cmake/SManDeps.cmake)
 if (SUPPORT_V8)
   include(${PXCOREDIR}/cmake/V8Deps.cmake)
 endif(SUPPORT_V8)
+include(${PXCOREDIR}/cmake/JSCDeps.cmake)
 
 set(WESTEROSINC ${EXTDIR}/westeros/external/install/include)
 set(WESTEROSSTUBINC ${EXTDIR}/westeros-stub)
@@ -320,6 +321,8 @@ else ()
     message(FATAL_ERROR "Cannot build pxscene. Unknown platform")
 endif (APPLE)
 
+set(PLATFORM_LIBRARIES ${PLATFORM_LIBRARIES} ${JAVASCRIPTCORE_LIBRARIES})
+
 if (DEFINED ENV{PX_BUILD_VERSION})
     set(PXSCENE_VERSION $ENV{PX_BUILD_VERSION})
 endif(DEFINED ENV{PX_BUILD_VERSION})
@@ -343,7 +346,7 @@ set(PXSCENE_DEFINITIONS ${PXSCENE_DEFINITIONS} -D${PX_PLATFORM} -DENABLE_RT_NODE
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
 #set(PXSCENE_LINKER_OPTIONS "${PXSCENE_LINKER_OPTIONS} -lgcov")
 
-include_directories(AFTER ${NODE_INCLUDE_DIRS} ${V8_INCLUDE_DIRS} ${DUKE_INCLUDE_DIRS})
+include_directories(AFTER ${JAVASCRIPTCORE_INCLUDE_DIRS} ${NODE_INCLUDE_DIRS} ${V8_INCLUDE_DIRS} ${DUKE_INCLUDE_DIRS})
 include_directories(AFTER ${WESTEROSINC} ${WESTEROSSTUBINC} ${TURBO_JPEG_INCLUDE_DIRS} ${BREAKPADINC} ${EXTDIR} ${PXCOREDIR}/src)
 include_directories(AFTER ${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(AFTER ${CMAKE_CURRENT_SOURCE_DIR}/rasterizer)

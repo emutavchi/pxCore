@@ -1173,6 +1173,9 @@ void pxObject::update(double t)
           }
           context.pushState();
       }
+
+      void *d = mChildren.data();
+
 // JR TODO  this lock looks suspicious... why do we need it?
 ENTERSCENELOCK()
     (*it)->update(t);
@@ -1180,6 +1183,9 @@ EXITSCENELOCK()
       if (gDirtyRectsEnabled) {
       context.popState();
       }
+
+      if (d != mChildren.data())
+        break;
   }
 
     if (gDirtyRectsEnabled) {

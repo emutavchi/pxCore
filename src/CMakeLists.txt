@@ -31,6 +31,7 @@ include(../cmake/CommOpts.cmake)
 include(../cmake/CommDeps.cmake)
 include(../cmake/NodeDeps.cmake)
 include(../cmake/V8Deps.cmake)
+include(../cmake/JSCDeps.cmake)
 
 set(BUILD_RTCORE_SHARED_LIBRARY 1)
 
@@ -225,6 +226,13 @@ if (SUPPORT_NODE)
     set(PXCORE_FILES ${PXCORE_FILES} rtScriptV8/rtScriptNode.cpp rtScriptV8/jsCallback.cpp rtScriptV8/rtFunctionWrapper.cpp 
         rtScriptV8/rtObjectWrapper.cpp rtScriptV8/rtWrapperUtils.cpp)
 endif()
+
+if (SUPPORT_JSC)
+    message("Adding JSC scripting support")
+    add_definitions(-DRTSCRIPT_SUPPORT_JSC)
+    include_directories(AFTER ${JAVASCRIPTCORE_INCLUDE_DIRS})
+    set(PXCORE_FILES ${PXCORE_FILES} rtScriptJSC/rtScriptJSC.cpp)
+endif(SUPPORT_JSC)
 
 if (SUPPORT_V8)
     message("Adding V8 scripting support")
