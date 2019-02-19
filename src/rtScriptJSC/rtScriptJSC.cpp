@@ -50,7 +50,7 @@ void releaseGlobalContexNow() {
     JSGlobalContextRelease(ctx);
 }
 
-#define USE_GLIB
+// #define USE_GLIB
 
 #if defined(USE_GLIB)
 #include <glib.h>
@@ -378,31 +378,8 @@ static rtError jsToRtValue(JSContextRef context, JSValueRef valueRef, rtValue &r
       return;
     }
 
-#if 1
     rtObjectRef obj = new JSObjectWrapper(ctx, objectRef, JSValueIsArray(ctx, valueRef));
     result.setObject(obj);
-#else
-    rtObjectRef object = new rtMapObject;
-    JSPropertyNameArrayRef namesRef = JSObjectCopyPropertyNames(ctx, objectRef);
-    size_t size = JSPropertyNameArrayGetCount(namesRef);
-    for (size_t i = 0; i < size; ++i) {
-      JSStringRef namePtr = JSPropertyNameArrayGetNameAtIndex(namesRef, i);
-      JSValueRef valueRef = JSObjectGetProperty(ctx, objectRef, namePtr, &exc);
-      if (exc)
-        break;
-
-      rtString name = jsToRtString(namePtr);
-      rtValue converted;
-      jsToRtValue(ctx, valueRef, converted, &exc);
-      if (exc)
-        break;
-
-      object.set(name, converted);
-    }
-    JSPropertyNameArrayRelease(namesRef);
-    if (!exc)
-      result.setObject(object);
-#endif
   };
 
   JSValueRef exc = nullptr;
@@ -724,17 +701,6 @@ static bool resolveModulePath(const rtString &name, rtString &data)
   dirs.push_back("jsc_modules/");
 
   endings.push_back(".js");
-#if 0
-  endings.push_back("/index.js");
-  endings.push_back("/lib/index.js");
-  if (name.find(0, "/") == -1) {
-    if (name.endsWith(".js")) {
-      endings.push_back("/lib/" + name);
-    } else {
-      endings.push_back("/lib/" + name + ".js");
-    }
-  }
-#endif
 
   std::list<rtString>::const_iterator it, jt;
   for (it = dirs.begin(); !found && it != dirs.end(); ++it) {
@@ -757,16 +723,8 @@ static bool resolveModulePath(const rtString &name, rtString &data)
   return found;
 }
 
-typedef std::map<rtString, JSValueRef> ModuleCache;
 
-#if 0
-std::map<JSGlobalContextRef, ModuleCache> gLoadedModuleCache;
-#else
-ModuleCache gModuleCache;
-#endif
-
-static void injectBindings(JSContextRef jsContext);
-static void markIsJSC(JSContextRef ctx, JSObjectRef globalObj = nullptr, JSValueRef *exception = nullptr);
+static std::map<rtString, JSValueRef> gModuleCache;
 
 static JSValueRef requireCallback(JSContextRef ctx, JSObjectRef, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef *exception)
 {
@@ -774,33 +732,28 @@ static JSValueRef requireCallback(JSContextRef ctx, JSObjectRef, JSObjectRef thi
       return JSValueMakeNull(ctx);
 
   do {
-    JSStringRef resStr = JSValueToStringCopy(ctx, arguments[0], exception);
+    JSStringRef reqArgStr = JSValueToStringCopy(ctx, arguments[0], exception);
     if (exception && *exception)
       break;
-    rtString moduleName = jsToRtString(resStr);
+    rtString moduleName = jsToRtString(reqArgStr);
 
     rtString path;
     if (!resolveModulePath(moduleName, path)) {
-      JSStringRelease(resStr);
+      JSStringRelease(reqArgStr);
       rtLogError("Module %s not found", moduleName.cString());
       break;
     }
 
     JSGlobalContextRef globalCtx = JSContextGetGlobalContext(ctx);
-#if 0
-    auto& ctxCache = gLoadedModuleCache[globalCtx];
-#else
-    auto& ctxCache = gModuleCache;
-#endif
-    auto cachedModule= ctxCache.find(path);
-    if (cachedModule != ctxCache.end()) {
-      JSStringRelease(resStr);
+    auto cachedModule= gModuleCache.find(path);
+    if (cachedModule != gModuleCache.end()) {
+      JSStringRelease(reqArgStr);
       return cachedModule->second;
     }
 
     std::string codeStr = readFile(path.cString());
     if(codeStr.empty()) {
-      JSStringRelease(resStr);
+      JSStringRelease(reqArgStr);
       rtLogError(" %s  ... load error / not found.",__PRETTY_FUNCTION__);
       break;
     }
@@ -809,23 +762,15 @@ static JSValueRef requireCallback(JSContextRef ctx, JSObjectRef, JSObjectRef thi
       + codeStr +
       ";\n return this;}).call(new Object);";
 
-    JSContextGroupRef groupRef = JSContextGetGroup(JSContextGetGlobalContext(ctx));
-    JSGlobalContextRef newCtx = JSGlobalContextCreateInGroup(groupRef, nullptr);
-    markIsJSC(newCtx);
-    injectBindings(newCtx);
-    JSGlobalContextSetRemoteInspectionEnabled(newCtx, false);
-    JSGlobalContextSetName(newCtx, resStr);
-
     JSStringRef jsstr = JSStringCreateWithUTF8CString(codeStr.c_str());
-    JSValueRef module = JSEvaluateScript(newCtx, jsstr, nullptr, resStr, 0, exception);
+    JSValueRef module = JSEvaluateScript(globalCtx, jsstr, nullptr, reqArgStr, 0, exception);
     JSStringRelease(jsstr);
-    JSStringRelease(resStr);
+    JSStringRelease(reqArgStr);
 
     if (exception && *exception) {
       JSStringRef exceptStr = JSValueToStringCopy(globalCtx, *exception, nullptr);
       rtString errorStr = jsToRtString(exceptStr);
       JSStringRelease(exceptStr);
-      JSGlobalContextRelease(newCtx);
       rtLogError("Failed to eval, \n\terror='%s'\n\tmodule=%s\n\tscript='...'", errorStr.cString(), path.cString());
       break;
     }
@@ -835,7 +780,6 @@ static JSValueRef requireCallback(JSContextRef ctx, JSObjectRef, JSObjectRef thi
       JSStringRef exceptStr = JSValueToStringCopy(globalCtx, *exception, nullptr);
       rtString errorStr = jsToRtString(exceptStr);
       JSStringRelease(exceptStr);
-      JSGlobalContextRelease(newCtx);
       rtLogError("Failed to convert module to object, \n\terror='%s'\n\tmodule=%s", errorStr.cString(), path.cString());
       break;
     }
@@ -846,14 +790,13 @@ static JSValueRef requireCallback(JSContextRef ctx, JSObjectRef, JSObjectRef thi
       JSStringRef exceptStr = JSValueToStringCopy(globalCtx, *exception, nullptr);
       rtString errorStr = jsToRtString(exceptStr);
       JSStringRelease(exceptStr);
-      JSGlobalContextRelease(newCtx);
       rtLogError("Failed to get exports module to object, \n\terror='%s'\n\tmodule=%s", errorStr.cString(), path.cString());
       break;
     }
 
     JSValueProtect(globalCtx, module);
-    ctxCache[path] = exportsVal;
-    JSGlobalContextRelease(newCtx);
+    gModuleCache[path] = exportsVal;
+
     return exportsVal;
   } while(0);
 
@@ -995,15 +938,12 @@ private:
 rtJSCContext::rtJSCContext()
 {
   rtLogInfo(__FUNCTION__);
-#if 1
+  // TODO: probably this should be per script ...
   static auto group = JSContextGroupCreate();
   m_contextGroup = JSContextGroupRetain(group);
-#else
-  m_contextGroup = JSContextGroupCreate();
-#endif
   m_context = JSGlobalContextCreateInGroup(m_contextGroup, nullptr);
 
-  markIsJSC(m_context);
+  markIsJSC(m_context, nullptr, nullptr);
   injectBindings(m_context);
 
   // JSGlobalContextSetRemoteInspectionEnabled(m_context, false);
@@ -1012,18 +952,8 @@ rtJSCContext::rtJSCContext()
 rtJSCContext::~rtJSCContext()
 {
   rtLogInfo(__FUNCTION__);
-#if 0
-  auto ctxCacheIt = gLoadedModuleCache.find(m_context);
-  if (ctxCacheIt != gLoadedModuleCache.end()) {
-    auto& ctxCache = ctxCacheIt->second;
-    for (auto &valIt : ctxCache) {
-      JSValueUnprotect(m_context, valIt.second);
-    }
-    gLoadedModuleCache.erase(ctxCacheIt);
-  }
-#endif
-  JSGarbageCollect(m_context);
-  // JSSynchronousGarbageCollectForDebugging(m_context);
+  // JSGarbageCollect(m_context);
+  JSSynchronousGarbageCollectForDebugging(m_context);
   JSGlobalContextRelease(m_context);
   JSContextGroupRelease(m_contextGroup);
   rtLogInfo(__FUNCTION__);

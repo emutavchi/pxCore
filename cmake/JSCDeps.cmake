@@ -1,18 +1,26 @@
-if (PREFER_SYSTEM_LIBRARIES)
+if (SUPPORT_JSC)
 
-# pkg_search_module(JAVASCRIPTCORE javascriptcoregtk-4.0)
+if (UNIX AND NOT APPLE)
+  add_definitions(-DUSE_GLIB)
+  pkg_search_module(GLIB glib-2.0)
+  pkg_search_module(JAVASCRIPTCORE wpe-javascriptcore)
+  if (NOT JAVASCRIPTCORE_FOUND)
+    pkg_search_module(JAVASCRIPTCORE javascriptcoregtk-4.0)
+  endif(NOT JAVASCRIPTCORE_FOUND)
+  if (NOT JAVASCRIPTCORE_FOUND)
+    set(SUPPORT_JSC OFF)
+  else(NOT JAVASCRIPTCORE_FOUND)
+    set(JAVASCRIPTCORE_INCLUDE_DIRS ${JAVASCRIPTCORE_INCLUDE_DIRS} ${GLIB_INCLUDE_DIRS})
+    set(JAVASCRIPTCORE_LIBRARIES ${JAVASCRIPTCORE_LIBRARIES} ${GLIB_LIBRARIES})
+  endif(NOT JAVASCRIPTCORE_FOUND)
+elseif(APPLE)
+  set(JAVASCRIPTCORE_LIBRARIES "-framework JavaScriptCore")
+else()
+  set(SUPPORT_JSC OFF)
+endif()
 
-pkg_search_module(GLIB glib-2.0 )
+endif(SUPPORT_JSC)
 
- set(JAVASCRIPTCORE_INCLUDE_DIRS
-     "/projects/generic/jsc_2018/Source"
-     "/projects/generic/jsc_2018/build/DerivedSources/ForwardingHeaders"
- )
- set(JAVASCRIPTCORE_LIBRARIES -L/projects/generic/jsc_2018/build/lib -lJavaScriptCore -licuuc -licui18n)
-
- set(JAVASCRIPTCORE_INCLUDE_DIRS ${JAVASCRIPTCORE_INCLUDE_DIRS} ${GLIB_INCLUDE_DIRS})
- set(JAVASCRIPTCORE_LIBRARIES ${JAVASCRIPTCORE_LIBRARIES} ${GLIB_LIBRARIES})
-
-message("JAVASCRIPTCORE: ${JAVASCRIPTCORE_INCLUDE_DIRS}")
-
-endif(PREFER_SYSTEM_LIBRARIES)
+if (SUPPORT_JSC)
+  message("JAVASCRIPTCORE INCLUDE DIRS: ${JAVASCRIPTCORE_INCLUDE_DIRS}")
+endif(SUPPORT_JSC)
