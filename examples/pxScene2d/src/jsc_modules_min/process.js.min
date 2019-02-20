@@ -1,0 +1,1 @@
+function _tickCallback(){}module.exports={_tickCallback,env:{}};

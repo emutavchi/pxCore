@@ -1,0 +1,1 @@
+"use strict";function runInNewContext(a,b,c,d,e,f,g){return _runInNewContext(a,b,c,d,e,f,g)}module.exports={runInNewContext:runInNewContext};

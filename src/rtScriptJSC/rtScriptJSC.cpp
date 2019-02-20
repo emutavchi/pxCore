@@ -697,9 +697,12 @@ static bool resolveModulePath(const rtString &name, rtString &data)
   bool found = false;
   rtString path;
 
+  dirs.push_back("jsc_modules_min/");
   dirs.push_back(""); // this dir
   dirs.push_back("jsc_modules/");
 
+  endings.push_back(".min");
+  endings.push_back(".js.min");
   endings.push_back(".js");
 
   std::list<rtString>::const_iterator it, jt;
@@ -751,6 +754,7 @@ static JSValueRef requireCallback(JSContextRef ctx, JSObjectRef, JSObjectRef thi
       return cachedModule->second;
     }
 
+    rtLogInfo("Loading %s", path.cString());
     std::string codeStr = readFile(path.cString());
     if(codeStr.empty()) {
       JSStringRelease(reqArgStr);

@@ -1,0 +1,1 @@
+"use strict";function get(a,b){return httpGet(a,b)}module.exports={get:get};

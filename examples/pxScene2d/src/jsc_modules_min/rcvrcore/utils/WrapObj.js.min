@@ -1,0 +1,1 @@
+module.exports=function(a,b,c,d){var e=b?b:{},f=d?d:[];if(!d)for(var g in a)f.push(g);return f.forEach(function(b){e.hasOwnProperty(b)||function(b){"function"==typeof a[b]?e[b]=function(){return a[b].apply(c?a:this,arguments)}:Object.defineProperty(e,b,{get:function(){return a[b]===a?e:a[b]},set:function(c){a[b]=c}})}(b)}),e};

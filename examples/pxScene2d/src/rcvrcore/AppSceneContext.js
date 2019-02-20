@@ -41,7 +41,7 @@ var SetTimeout = (isDuk || isV8)?timers.setTimeout:setTimeout;
 var ClearTimeout = (isDuk || isV8)?timers.clearTimeout:clearTimeout;
 var SetInterval = (isDuk || isV8)?timers.setInterval:setInterval;
 var ClearInterval = (isDuk || isV8)?timers.clearInterval:clearInterval;
-var console = (isDuk || isV8)?global.console:require('console_wrap');
+var console = (isDuk || isV8 || isJSC)?global.console:require('console_wrap');
 
 function AppSceneContext(params) {
 
@@ -422,6 +422,27 @@ AppSceneContext.prototype.runScriptInNewVMContext = function (packageUri, module
         makeReady: makeReady,
         getContextID: getContextID
       }; // end sandbox
+    }
+    else if (isJSC)
+    {
+      newSandbox = {
+        sandboxName: "InitialSandbox",
+        console: console,
+        global: global,
+        isJSC: isJSC,
+        setTimeout: setTimeout,
+        clearTimeout: clearTimeout,
+        setInterval: setInterval,
+        clearInterval: clearInterval,
+        require: require,
+        loadUrl: loadUrl,
+        theNamedContext: "Sandbox: " + uri,
+        importTracking: {},
+        print: print,
+        getScene: getScene,
+        makeReady: makeReady,
+        getContextID: getContextID
+      };
     }
     else
     {

@@ -1,0 +1,1 @@
+var vm=require("vm"),require=this.require,_sandboxStuff=["console","vm","require"];
