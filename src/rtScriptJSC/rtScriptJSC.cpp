@@ -37,7 +37,16 @@ JS_EXPORT void JSSynchronousGarbageCollectForDebugging(JSContextRef);
 }
 #endif
 
+namespace WTF {
+void initializeMainThread();
+};
+
+namespace JSC {
+void initializeThreading();
+};
+
 // #define USE_GLIB
+#define USE_SINGLE_CTX_GROUP
 
 static void releaseGlobalContexNow();
 
@@ -47,18 +56,19 @@ static void releaseGlobalContexNow();
 static GMainLoop *gMainLoop = nullptr;
 static void initMainLoop()
 {
+  WTF::initializeMainThread();
+  JSC::initializeThreading();
   if (!gMainLoop && g_main_depth() == 0) {
-    gMainLoop = g_main_loop_new (g_main_context_default(), true);
+    gMainLoop = g_main_loop_new (nullptr, false);
   }
 }
 static void pumpMainLoop()
 {
   if (!gMainLoop || g_main_depth() != 0)
     return;
-  GMainContext *ctx = g_main_loop_get_context(gMainLoop);
   gboolean ret;
   do {
-    ret = g_main_context_iteration(ctx, false);
+    ret = g_main_context_iteration(nullptr, false);
   } while(ret);
 }
 
@@ -104,10 +114,10 @@ static std::string readFile(const char *file)
   return src_script.str();
 }
 
-static bool fileExists(const std::string& name)
+static bool fileExists(const char* name)
 {
   struct stat buffer;
-  bool ret = (stat (name.c_str(), &buffer) == 0);
+  bool ret = (stat (name, &buffer) == 0);
   return ret;
 }
 
@@ -159,8 +169,16 @@ public:
   }
 
   ~JSObjectWrapper() {
-    JSValueUnprotect(m_contextRef, m_object);
-    releaseGlobalContexLater(m_contextRef);
+    releaseProtected();
+  }
+
+  void releaseProtected() {
+    if (m_contextRef && m_object) {
+      JSValueUnprotect(m_contextRef, m_object);
+      releaseGlobalContexLater(m_contextRef);
+      m_object = nullptr;
+      m_contextRef = nullptr;
+    }
   }
 
   unsigned long AddRef() override {
@@ -180,6 +198,11 @@ public:
   }
 
   rtError Get(const char* name, rtValue* value) const override {
+    if (!m_contextRef) {
+      rtLogError("Lost JS context!!!!");
+      return RT_FAIL;
+    }
+
     if (!name || !value)
       return RT_ERROR_INVALID_ARG;
 
@@ -237,6 +260,10 @@ public:
   }
 
   rtError Set(const char* name, const rtValue* value) override {
+    if (!m_contextRef) {
+      rtLogError("Lost JS context!!!!");
+      return RT_FAIL;
+    }
     if (!name || !value)
       return RT_FAIL;
     if (m_isArray)
@@ -270,6 +297,10 @@ public:
 class JSFunctionWrapper : public rtIFunction
 {
   rtError Send(int numArgs, const rtValue* args, rtValue* result) override {
+    if (!m_contextRef || !m_funcObj) {
+      rtLogError("No JS context!!!!");
+      return RT_FAIL;
+    }
     std::vector<JSValueRef> jsArgs;
     if (numArgs) {
       jsArgs.reserve(numArgs);
@@ -323,8 +354,16 @@ public:
   }
 
   ~JSFunctionWrapper() {
-    JSValueUnprotect(m_contextRef, m_funcObj);
-    releaseGlobalContexLater(m_contextRef);
+    releaseProtected();
+  }
+
+  void releaseProtected() {
+    if (m_contextRef && m_funcObj) {
+      JSValueUnprotect(m_contextRef, m_funcObj);
+      releaseGlobalContexLater(m_contextRef);
+      m_funcObj = nullptr;
+      m_contextRef = nullptr;
+    }
   }
 };
 
@@ -688,7 +727,7 @@ static JSValueRef noopCallback(JSContextRef ctx, JSObjectRef fun, JSObjectRef, s
   return JSValueMakeUndefined(ctx);
 }
 
-static JSValueRef uvGetHrTime(JSContextRef ctx, JSObjectRef, JSObjectRef, size_t argumentCount, const JSValueRef arguments[], JSValueRef *exception)
+static JSValueRef uvGetHrTimeCallback(JSContextRef ctx, JSObjectRef, JSObjectRef, size_t argumentCount, const JSValueRef arguments[], JSValueRef *exception)
 {
   auto dur = std::chrono::high_resolution_clock::now().time_since_epoch();
   uint64_t hrtime = std::chrono::duration_cast<std::chrono::nanoseconds>(dur).count();
@@ -696,6 +735,45 @@ static JSValueRef uvGetHrTime(JSContextRef ctx, JSObjectRef, JSObjectRef, size_t
   int seconds = hrtime / 1e9;
   JSValueRef args[] = { JSValueMakeNumber(ctx, seconds), JSValueMakeNumber(ctx, nanoseconds) };
   return JSObjectMakeArray(ctx, 2, args, exception);
+}
+
+static JSValueRef readFileCallback(JSContextRef ctx, JSObjectRef, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef *exception)
+{
+  if (argumentCount != 2)
+    return JSValueMakeUndefined(ctx);
+
+  JSValueRef result = nullptr;
+  do {
+    JSStringRef filePath = JSValueToStringCopy(ctx, arguments[0], exception);
+    if (exception && *exception)
+      break;
+
+    rtString path = jsToRtString(filePath);
+    JSStringRelease(filePath);
+
+    JSObjectRef callbackObj = JSValueToObject(ctx, arguments[1], exception);
+    if (exception && *exception)
+      break;
+
+    int retCode = -1;
+    JSStringRef retStr = nullptr;
+    if ((retCode = access(path.cString(), R_OK)) == 0) {
+      retStr = JSStringCreateWithUTF8CString(readFile(path.cString()).c_str());
+    } else {
+      retStr = JSStringCreateWithUTF8CString("");
+    }
+
+    JSValueRef args[] = { JSValueMakeNumber(ctx, retCode), JSValueMakeString(ctx, retStr) };
+    result = JSObjectCallAsFunction(ctx, callbackObj, thisObject, 2, args, exception);
+    JSStringRelease(retStr);
+  } while (0);
+
+  if (exception && *exception) {
+    printException(ctx, *exception);
+    return JSValueMakeUndefined(ctx);
+  }
+
+  return result;
 }
 
 static bool resolveModulePath(const rtString &name, rtString &data)
@@ -732,8 +810,20 @@ static bool resolveModulePath(const rtString &name, rtString &data)
   return found;
 }
 
+typedef std::map<rtString, JSValueRef> ModuleCache;
+static std::map<JSContextGroupRef, ModuleCache> gModuleCache;
 
-static std::map<rtString, JSValueRef> gModuleCache;
+static void releaseModulesForGroup(JSContextGroupRef group, JSGlobalContextRef ctx)
+{
+  auto it = gModuleCache.find(group);
+  if (it != gModuleCache.end()) {
+    auto &moduleCache = it->second;
+    for (auto &valIt : moduleCache) {
+      JSValueUnprotect(ctx, valIt.second);
+    }
+    gModuleCache.erase(it);
+  }
+}
 
 static JSValueRef requireCallback(JSContextRef ctx, JSObjectRef, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef *exception)
 {
@@ -744,8 +834,8 @@ static JSValueRef requireCallback(JSContextRef ctx, JSObjectRef, JSObjectRef thi
     JSStringRef reqArgStr = JSValueToStringCopy(ctx, arguments[0], exception);
     if (exception && *exception)
       break;
-    rtString moduleName = jsToRtString(reqArgStr);
 
+    rtString moduleName = jsToRtString(reqArgStr);
     rtString path;
     if (!resolveModulePath(moduleName, path)) {
       JSStringRelease(reqArgStr);
@@ -754,8 +844,10 @@ static JSValueRef requireCallback(JSContextRef ctx, JSObjectRef, JSObjectRef thi
     }
 
     JSGlobalContextRef globalCtx = JSContextGetGlobalContext(ctx);
-    auto cachedModule= gModuleCache.find(path);
-    if (cachedModule != gModuleCache.end()) {
+    JSContextGroupRef groupRef = JSContextGetGroup(globalCtx);
+    auto &moduleCache = gModuleCache[groupRef];
+    auto cachedModule= moduleCache.find(path);
+    if (cachedModule != moduleCache.end()) {
       JSStringRelease(reqArgStr);
       return cachedModule->second;
     }
@@ -805,7 +897,7 @@ static JSValueRef requireCallback(JSContextRef ctx, JSObjectRef, JSObjectRef thi
     }
 
     JSValueProtect(globalCtx, module);
-    gModuleCache[path] = exportsVal;
+    moduleCache[path] = exportsVal;
 
     return exportsVal;
   } while(0);
@@ -913,7 +1005,8 @@ void injectBindings(JSContextRef jsContext)
   injectFun(jsContext, "httpGet", noopCallback);
   injectFun(jsContext, "webscoketGet", noopCallback);
 
-  injectFun(jsContext, "uv_hrtime", uvGetHrTime);
+  injectFun(jsContext, "_readFile", readFileCallback);
+  injectFun(jsContext, "uv_hrtime", uvGetHrTimeCallback);
   injectFun(jsContext, "require", requireCallback);
   injectFun(jsContext, "_runInNewContext", runInNewContext);
 }
@@ -945,28 +1038,45 @@ private:
   JSGlobalContextRef m_context { nullptr };
 };
 
+static int instanceCount = 0;
+static JSContextGroupRef g_group = nullptr;
+
 rtJSCContext::rtJSCContext()
 {
   rtLogInfo(__FUNCTION__);
-  // TODO: probably this should be per script ...
-  static auto group = JSContextGroupCreate();
-  m_contextGroup = JSContextGroupRetain(group);
+#if defined(USE_SINGLE_CTX_GROUP)
+  if (nullptr == g_group)
+    g_group = JSContextGroupCreate();
+  m_contextGroup = JSContextGroupRetain(g_group);
+#else
+  m_contextGroup = JSContextGroupCreate();
+#endif
   m_context = JSGlobalContextCreateInGroup(m_contextGroup, nullptr);
 
   markIsJSC(m_context, nullptr, nullptr);
   injectBindings(m_context);
 
+  ++instanceCount;
   // JSGlobalContextSetRemoteInspectionEnabled(m_context, false);
 }
 
 rtJSCContext::~rtJSCContext()
 {
-  rtLogInfo(__FUNCTION__);
+  rtLogInfo("%s begin", __FUNCTION__);
+#if defined(USE_SINGLE_CTX_GROUP)
+  if (false && --instanceCount == 0) {
+    JSContextGroupRelease(g_group);
+    g_group=nullptr;
+    releaseModulesForGroup(m_contextGroup, m_context);
+  }
+#else
+  releaseModulesForGroup(m_contextGroup, m_context);
+#endif
   JSGarbageCollect(m_context);
   // JSSynchronousGarbageCollectForDebugging(m_context);
   JSGlobalContextRelease(m_context);
   JSContextGroupRelease(m_contextGroup);
-  rtLogInfo(__FUNCTION__);
+  rtLogInfo("%s end", __FUNCTION__);
 }
 
 rtError rtJSCContext::add(const char *name, rtValue const& val)
