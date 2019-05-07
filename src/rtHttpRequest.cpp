@@ -281,10 +281,10 @@ void rtHttpRequest::onDownloadComplete(rtFileDownloadRequest* downloadRequest)
 
 void rtHttpRequest::onDownloadCompleteAndRelease(rtFileDownloadRequest* downloadRequest)
 {
-  onDownloadComplete(downloadRequest);
   rtHttpRequest* req = (rtHttpRequest*)downloadRequest->callbackData();
   if (req != NULL)
   {
+    req->onDownloadComplete(downloadRequest);
     req->Release();
   }
 }

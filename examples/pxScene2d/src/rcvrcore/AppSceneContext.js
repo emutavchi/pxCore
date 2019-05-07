@@ -20,6 +20,7 @@ limitations under the License.
 
 var isDuk=(typeof Duktape != "undefined")?true:false;
 var isV8=(typeof _isV8 != "undefined")?true:false;
+var isJSC = (typeof _isJSC != "undefined")?true:false;
 
 var url = require('url');
 var path = require('path');
@@ -40,7 +41,7 @@ var SetTimeout = (isDuk || isV8)?timers.setTimeout:setTimeout;
 var ClearTimeout = (isDuk || isV8)?timers.clearTimeout:clearTimeout;
 var SetInterval = (isDuk || isV8)?timers.setInterval:setInterval;
 var ClearInterval = (isDuk || isV8)?timers.clearInterval:clearInterval;
-var console = (isDuk || isV8)?global.console:require('console_wrap');
+var console = (isDuk || isV8 || isJSC)?global.console:require('console_wrap');
 
 function AppSceneContext(params) {
 
@@ -330,7 +331,7 @@ AppSceneContext.prototype.runScriptInNewVMContext = function (packageUri, module
   var self = this;
   var newSandbox;
   try {
-    if (!isDuk && !isV8) {
+    if (!isDuk && !isV8 && !isJSC) {
       var requireMethod = function (pkg) {
         if (typeof requireIt === "function") { 
           // TODO: remove
@@ -353,13 +354,13 @@ AppSceneContext.prototype.runScriptInNewVMContext = function (packageUri, module
 
       var fs = require("fs");
       var requireEnableFile = requireEnableFilePath + "/.pxsceneEnableRequire";
-      if (fs.existsSync(requireEnableFile)) {
+      if (fs && fs.existsSync(requireEnableFile)) {
         console.log("enabling pxscene require support");
         requireMethod = require;
       }
     }
 
-    if (!isDuk && !isV8) {
+    if (!isDuk && !isV8 && !isJSC) {
       var processWrap = WrapObj(process, {"binding":function() { throw new Error("process.binding is not supported"); }});
       var globalWrap = WrapObj(global, {"process":processWrap});
 
@@ -428,9 +429,16 @@ AppSceneContext.prototype.runScriptInNewVMContext = function (packageUri, module
     {
       newSandbox = {
         sandboxName: "InitialSandbox",
+        Buffer: Buffer,
+        isJSC: isJSC,
         console: console,
+        setTimeout: setTimeout,
+        clearTimeout: clearTimeout,
+        setInterval: setInterval,
+        clearInterval: clearInterval,
+        process: process,
+        // print: print,
         theNamedContext: "Sandbox: " + uri,
-        //Buffer: Buffer,
         importTracking: {}
       }; // end sandbox
     }
@@ -462,7 +470,7 @@ AppSceneContext.prototype.runScriptInNewVMContext = function (packageUri, module
         'exports'
       ]);
 
-      if (isDuk) {
+      if (isDuk || isJSC) {
         vm.runInNewContext(sourceCode, newSandbox, {
           filename: path.normalize(fname),
           displayErrors: true

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8)
 project(pxcore)
 find_package(PkgConfig)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 14)
 
 option(WINDOWLESS_EGL "WINDOWLESS_EGL" OFF)
 option(PXCORE_WAYLAND_EGL "PXCORE_WAYLAND_EGL" OFF)
@@ -31,6 +31,7 @@ include(../cmake/CommOpts.cmake)
 include(../cmake/CommDeps.cmake)
 include(../cmake/NodeDeps.cmake)
 include(../cmake/V8Deps.cmake)
+include(../cmake/JSCDeps.cmake)
 
 set(BUILD_RTCORE_SHARED_LIBRARY 1)
 
@@ -191,7 +192,7 @@ else ()
 endif (APPLE)
 
 if (NOT PXCORE_DFB)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fpermissive -std=c++11")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fpermissive -std=c++1y")
 endif (NOT PXCORE_DFB)
 
 if (PXCORE_COMPILE_WARNINGS_AS_ERRORS)
@@ -225,6 +226,20 @@ if (SUPPORT_NODE)
     set(PXCORE_FILES ${PXCORE_FILES} rtScriptV8/rtScriptNode.cpp rtScriptV8/jsCallback.cpp rtScriptV8/rtFunctionWrapper.cpp 
         rtScriptV8/rtObjectWrapper.cpp rtScriptV8/rtWrapperUtils.cpp)
 endif()
+
+if (SUPPORT_JSC)
+    message("Adding JSC scripting support")
+    add_definitions(-DRTSCRIPT_SUPPORT_JSC)
+    include_directories(AFTER ${JAVASCRIPTCORE_INCLUDE_DIRS})
+    include_directories(AFTER ${EXTDIR}/uWebSockets/src)
+    set(PXCORE_FILES ${PXCORE_FILES}
+      rtScriptJSC/rtScriptJSC.cpp
+      rtScriptJSC/rtScriptJSCPrivate.cpp
+      rtScriptJSC/rtJSCWrappers.cpp
+      rtScriptJSC/rtJSCMisc.cpp
+      rtScriptJSC/rtJSCBindings.cpp
+      rtScriptJSC/rtWebSocket.cpp)
+endif(SUPPORT_JSC)
 
 if (SUPPORT_V8)
     message("Adding V8 scripting support")

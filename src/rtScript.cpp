@@ -34,6 +34,9 @@
 #include "rtScriptDuk/rtScriptDuk.h"
 #endif
 
+#ifdef RTSCRIPT_SUPPORT_JSC
+#include "rtScriptJSC/rtScriptJSC.h"
+#endif
 
 #ifdef __APPLE__
 static pthread_mutex_t sSceneLock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER; //PTHREAD_MUTEX_INITIALIZER;
@@ -198,6 +201,8 @@ rtError rtScript::init()
         createScriptDuk(mScript);
     #elif defined(RTSCRIPT_SUPPORT_NODE)
         createScriptNode(mScript);
+    #elif defined(RTSCRIPT_SUPPORT_JSC)
+        createScriptJSC(mScript);
     #else
     #error "No Script Engine Supported"
     #endif
