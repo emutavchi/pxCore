@@ -18,6 +18,7 @@ limitations under the License.
 
 var isDuk=(typeof Duktape != "undefined")?true:false;
 var isV8 = (typeof _isV8 != "undefined")?true:false;
+var isJSC = (typeof _isJSC != "undefined")?true:false;
 
 var defaultAppUrl = 'browser.js'
 
@@ -52,7 +53,7 @@ px.import({ scene: 'px:scene.1.js',
       logger.message('error', "Received uncaught rejection.... " + err);
     }
   }
-  if (!isDuk && !isV8) {
+  if (!isDuk && !isV8 && !isJSC) {
     process.on('uncaughtException', uncaughtException);
     process.on('unhandledRejection', unhandledRejection);
   }
@@ -351,7 +352,7 @@ if( scene.capabilities != undefined && scene.capabilities.graphics != undefined 
   */
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   function releaseResources() {
-    if (!isDuk && !isV8) {
+    if (!isDuk && !isV8 && !isJSC) {
         process.removeListener("uncaughtException", uncaughtException);
         process.removeListener("unhandledRejection", unhandledRejection);
     }
