@@ -106,6 +106,8 @@ cp -a duk_modules $bundleRes/duk_modules
 cp -a node_modules $bundleRes/node_modules
 # Copy v8 modules
 cp -a v8_modules $bundleRes/v8_modules
+# and JSC modules as well
+cp -a jsc_modules  $bundleRes/jsc_modules
 
 
 # Copy OTHER to Resources...

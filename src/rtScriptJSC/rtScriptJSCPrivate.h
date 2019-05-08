@@ -9,6 +9,9 @@
 
 #include "rtJSCMisc.h"
 
+// private
+typedef const struct OpaqueJSWeak* JSWeakRef;
+
 namespace RtJSC {
 
 class rtJSCProtected;
@@ -52,6 +55,10 @@ public:
 
 class rtJSCProtected
 {
+  rtJSCProtected(const rtJSCProtected&) = delete;
+  rtJSCProtected& operator=(const rtJSCProtected&) = delete;
+  rtJSCProtected(rtJSCProtected&&) = delete;
+  rtJSCProtected& operator=(rtJSCProtected&&) = delete;
 protected:
   friend class rtJSCContextPrivate;
 
@@ -67,6 +74,25 @@ public:
 
   JSObjectRef wrapped() const { return m_object; }
   JSGlobalContextRef context() const { return m_contextRef; }
+};
+
+class rtJSCWeak final
+{
+  JSContextGroupRef m_groupRef { nullptr };
+  JSWeakRef m_weakRef { nullptr };
+
+  void releaseWeakRef();
+public:
+  rtJSCWeak();
+  rtJSCWeak(const rtJSCWeak& other);
+  rtJSCWeak(rtJSCWeak&& other) noexcept;
+  rtJSCWeak(JSContextRef context, JSObjectRef obj);
+  ~rtJSCWeak();
+
+  rtJSCWeak& operator=(const rtJSCWeak &);
+  rtJSCWeak& operator=(rtJSCWeak &&) noexcept;
+
+  JSObjectRef wrapped() const;
 };
 
 }  // RtJSC

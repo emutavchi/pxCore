@@ -18,6 +18,7 @@ limitations under the License.
 
 module.exports = {
     _tickCallback: function() {},
+    exit: function() { throw new Error("proces.exit is not supported"); },
     binding: function() { throw new Error("process.binding is not supported"); },
     hrtime: function() { return _hrtime(); },
     memoryUsage: function() { return 0; },

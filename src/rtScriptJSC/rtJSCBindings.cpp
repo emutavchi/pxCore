@@ -221,8 +221,8 @@ static JSValueRef runInNewContext(JSContextRef ctx, JSObjectRef, JSObjectRef thi
     if (exception && *exception)
       break;
 
-    // clone sandbox
-    if (true) {
+    // clone sandbox ?
+    if (false) {
       static JSStringRef cloneCodeStr = JSStringCreateWithUTF8CString("(function(){ return function(o){return Object.assign({},o);}})()");
       JSValueRef cloneCodeV = JSEvaluateScript(newCtx, cloneCodeStr, newGlobalObj, nullptr, 0, exception);
       if (exception && *exception)

@@ -272,8 +272,8 @@ rtJSCContext::~rtJSCContext()
 
   m_priv->releaseAllProtected();
 
-  // JSGarbageCollect(m_context);
-  JSSynchronousGarbageCollectForDebugging(m_context);
+  JSGarbageCollect(m_context);
+  // JSSynchronousGarbageCollectForDebugging(m_context);
   JSGlobalContextRelease(m_context);
 
 #if defined(USE_SINGLE_CTX_GROUP)

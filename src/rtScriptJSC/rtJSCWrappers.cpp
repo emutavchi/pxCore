@@ -18,6 +18,15 @@ static JSValueRef rtObjectWrapper_wrapPromise(JSContextRef context, rtObjectRef 
 static JSValueRef rtObjectWrapper_wrapObject(JSContextRef context, rtObjectRef obj);
 static JSValueRef rtFunctionWrapper_wrapFunction(JSContextRef context, rtFunctionRef func);
 
+struct rtObjectWrapperPrivate
+{
+  rtValue v;
+  std::map<std::string, std::pair<rtIObject*, rtJSCWeak>> wrapperCache;
+};
+
+static std::map<rtIObject*, rtJSCWeak> gWrapperCache;
+static bool gEnableWrapperCache = true;
+
 static bool isJSObjectWrapper(const rtObjectRef& obj)
 {
   rtValue value;
@@ -103,9 +112,11 @@ static JSValueRef rtFunctionWrapper_callAsFunction(JSContextRef context, JSObjec
 
 static void rtFunctionWrapper_finalize(JSObjectRef thisObject)
 {
-  rtValue *v = (rtValue *)JSObjectGetPrivate(thisObject);
+  rtObjectWrapperPrivate *p = (rtObjectWrapperPrivate *)JSObjectGetPrivate(thisObject);
   JSObjectSetPrivate(thisObject, nullptr);
-  delete v;
+  RtJSC::dispatchOnMainLoop( [p=p] {
+      delete p;
+    });
 }
 
 static const JSClassDefinition rtFunctionWrapper_class_def =
@@ -134,14 +145,15 @@ static JSValueRef rtFunctionWrapper_wrapFunction(JSContextRef context, rtFunctio
   if (!func)
     return JSValueMakeNull(context);
   static JSClassRef classRef = JSClassCreate(&rtFunctionWrapper_class_def);
-  rtValue *v = new rtValue(func);
-  return JSObjectMake(context, classRef, v);
+  rtObjectWrapperPrivate *p = new rtObjectWrapperPrivate;
+  p->v.setFunction(func);
+  return JSObjectMake(context, classRef, p);
 }
 
 static bool rtObjectWrapper_setProperty(JSContextRef context, JSObjectRef thisObject, JSStringRef propertyName, JSValueRef value, JSValueRef *exception)
 {
-  rtValue *p = (rtValue *)JSObjectGetPrivate(thisObject);
-  rtObjectRef objectRef = p->toObject();
+  rtObjectWrapperPrivate *p = (rtObjectWrapperPrivate *)JSObjectGetPrivate(thisObject);
+  rtObjectRef objectRef = p->v.toObject();
   if (!objectRef) {
     JSStringRef errStr = JSStringCreateWithUTF8CString("Not an rt object");
     *exception = JSValueMakeString(context, errStr);
@@ -172,25 +184,36 @@ static bool rtObjectWrapper_setProperty(JSContextRef context, JSObjectRef thisOb
   return true;
 }
 
-static JSValueRef rtObjectWrapper_descriptionCallback(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
+static JSValueRef rtObjectWrapper_convertToType(JSContextRef context, JSObjectRef object, JSType type, JSValueRef* exception)
 {
-  rtValue *p = (rtValue *)JSObjectGetPrivate(thisObject);
-  rtObjectRef objectRef = p->toObject();
+  rtObjectWrapperPrivate *p = (rtObjectWrapperPrivate *)JSObjectGetPrivate(object);
+  rtObjectRef objectRef = p->v.toObject();
   if (!objectRef)
     return JSValueMakeUndefined(context);
 
-  rtValue v;
-  rtError e = objectRef.get("description", v);
+  if (type != kJSTypeString)
+    return JSValueMakeNumber(context, 0);
+
+  rtString desc;
+  rtError e = objectRef.sendReturns<rtString>("description", desc);
   if (e != RT_OK)
     return JSValueMakeUndefined(context);
 
-  return rtToJs(context, v);
+  JSStringRef jsStr = JSStringCreateWithUTF8CString(desc.cString());
+  JSValueRef jsVal = JSValueMakeString(context, jsStr);
+  JSStringRelease(jsStr);
+  return jsVal;
+}
+
+static JSValueRef rtObjectWrapper_toStringCallback(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
+{
+  return rtObjectWrapper_convertToType(context, thisObject, kJSTypeString, exception);
 }
 
 static JSValueRef rtObjectWrapper_getProperty(JSContextRef context, JSObjectRef thisObject, JSStringRef propertyName, JSValueRef *exception)
 {
-  rtValue *p = (rtValue *)JSObjectGetPrivate(thisObject);
-  rtObjectRef objectRef = p->toObject();
+  rtObjectWrapperPrivate *p = (rtObjectWrapperPrivate *)JSObjectGetPrivate(thisObject);
+  rtObjectRef objectRef = p->v.toObject();
   if (!objectRef)
     return JSValueMakeUndefined(context);
 
@@ -199,10 +222,11 @@ static JSValueRef rtObjectWrapper_getProperty(JSContextRef context, JSObjectRef 
     return JSValueMakeUndefined(context);
 
   if (!strcmp(propName.cString(), "Symbol.toPrimitive") ||
-      !strcmp(propName.cString(), "toString") ||
-      !strcmp(propName.cString(), "valueOf")) {
-    return JSObjectMakeFunctionWithCallback(context, nullptr, rtObjectWrapper_descriptionCallback);
-  }
+      !strcmp(propName.cString(), "valueOf"))
+    return JSValueMakeUndefined(context);
+
+  if (!strcmp(propName.cString(), "toString"))
+    return JSObjectMakeFunctionWithCallback(context, nullptr, rtObjectWrapper_toStringCallback);
 
   if (!strcmp(propName.cString(), "toJSON")) {
     return JSValueMakeUndefined(context);
@@ -224,13 +248,38 @@ static JSValueRef rtObjectWrapper_getProperty(JSContextRef context, JSObjectRef 
     return JSValueMakeUndefined(context);
   }
 
+  if (RT_objectType == v.getType())
+  {
+    rtObjectRef o = v.toObject();
+    if (rtIsPromise(o))
+    {
+      JSValueRef res = nullptr;
+      auto &cache = p->wrapperCache[propName.cString()];
+      if (cache.first == o.getPtr() && cache.second.wrapped())
+      {
+        res = cache.second.wrapped();
+      }
+      else
+      {
+        res = rtObjectWrapper_wrapPromise(JSContextGetGlobalContext(context), o);
+        if (JSValueIsObject(context, res)) {
+          cache.first = o.getPtr();
+          cache.second = rtJSCWeak(context, JSValueToObject(context, res, exception));
+        } else {
+          p->wrapperCache.erase(propName.cString());
+        }
+      }
+      return res;
+    }
+  }
+
   return rtToJs(context, v);
 }
 
 static void rtObjectWrapper_getPropertyNames(JSContextRef ctx, JSObjectRef object, JSPropertyNameAccumulatorRef propertyNames)
 {
-  rtValue *p = (rtValue *)JSObjectGetPrivate(object);
-  rtObjectRef objectRef = p->toObject();
+  rtObjectWrapperPrivate *p = (rtObjectWrapperPrivate *)JSObjectGetPrivate(object);
+  rtObjectRef objectRef = p->v.toObject();
   if (!objectRef)
     return;
 
@@ -263,29 +312,20 @@ static void rtObjectWrapper_getPropertyNames(JSContextRef ctx, JSObjectRef objec
   }
 }
 
-static JSValueRef rtObjectWrapper_convertToType(JSContextRef context, JSObjectRef object, JSType type, JSValueRef* exception)
-{
-  rtValue *p = (rtValue *)JSObjectGetPrivate(object);
-  rtObjectRef objectRef = p->toObject();
-  if (!objectRef)
-    return JSValueMakeUndefined(context);
-
-  if (type != kJSTypeString)
-    return JSValueMakeNumber(context, 1);
-
-  rtValue v;
-  rtError e = objectRef.get("description", v);
-  if (e != RT_OK)
-    return JSValueMakeUndefined(context);
-
-  return rtToJs(context, v);
-}
-
 static void rtObjectWrapper_finalize(JSObjectRef thisObject)
 {
-  rtValue *v = (rtValue *)JSObjectGetPrivate(thisObject);
+  rtObjectWrapperPrivate *p = (rtObjectWrapperPrivate *)JSObjectGetPrivate(thisObject);
   JSObjectSetPrivate(thisObject, nullptr);
-  delete v;
+  RtJSC::dispatchOnMainLoop([p=p] {
+      if (gEnableWrapperCache) {
+        rtIObject* ptr = p->v.toObject().getPtr();
+        auto it = gWrapperCache.find(ptr);
+        if (it != gWrapperCache.end() && it->second.wrapped() == nullptr) {
+          gWrapperCache.erase(it);
+        }
+      }
+      delete p;
+    });
 }
 
 static const JSClassDefinition rtObjectWrapper_class_def =
@@ -406,6 +446,20 @@ static JSValueRef rtObjectWrapper_wrapObject(JSContextRef context, rtObjectRef o
   if (rtIsPromise(obj))
     return rtObjectWrapper_wrapPromise(JSContextGetGlobalContext(context), obj);
 
+  if (gEnableWrapperCache)
+  {
+    rtIObject* ptr = obj.getPtr();
+    auto it = gWrapperCache.find(ptr);
+    if (it != gWrapperCache.end()) {
+      JSObjectRef res = it->second.wrapped();
+      if (!res) {
+        gWrapperCache.erase(it);
+      } else {
+        return res;
+      }
+    }
+  }
+
   JSClassRef classRef = nullptr;
   rtMethodMap* objMap = obj->getMap();
   if (objMap && objMap->className)
@@ -483,7 +537,6 @@ static JSValueRef rtObjectWrapper_wrapObject(JSContextRef context, rtObjectRef o
             e = e->mNext;
           }
         }
-        // staticValues.push_back(JSStaticValue { "toString", rtObjectWrapper_getProperty, nullptr, kJSPropertyAttributeReadOnly });
         staticValues.push_back(JSStaticValue { nullptr, nullptr, nullptr, kJSClassAttributeNone });
         classDef.staticValues = staticValues.data();
       }
@@ -501,8 +554,14 @@ static JSValueRef rtObjectWrapper_wrapObject(JSContextRef context, rtObjectRef o
     classRef = sClassRef;
   }
 
-  rtValue *v = new rtValue(obj);
-  return JSObjectMake(context, classRef, v);
+  rtObjectWrapperPrivate *p = new rtObjectWrapperPrivate;
+  p->v.setObject(obj);
+  JSObjectRef res = JSObjectMake(context, classRef, p);
+  if (gEnableWrapperCache)
+  {
+    gWrapperCache[obj.getPtr()] = rtJSCWeak(context, res);
+  }
+  return res;
 }
 
 }  // namespace
@@ -524,9 +583,9 @@ rtError jsToRt(JSContextRef context, JSValueRef valueRef, rtValue &result, JSVal
       if (exc)
         return;
 
-      rtValue *v = (rtValue *)JSObjectGetPrivate(objectRef);
-      if (v) {
-        result = *v;
+      rtObjectWrapperPrivate *p = (rtObjectWrapperPrivate *)JSObjectGetPrivate(objectRef);
+      if (p) {
+        result = p->v;
         return;
       }
 
@@ -676,6 +735,8 @@ rtError JSObjectWrapper::Get(const char* name, rtValue* value) const
     return RT_OK;
 
   if (strcmp(name, "description") == 0) {
+    return RT_PROP_NOT_FOUND;
+    // TODO: this should return a function
     JSValueRef exc = nullptr;
     JSStringRef descJsStr = JSValueToStringCopy(m_contextRef, m_object, &exc);
     if (exc) {

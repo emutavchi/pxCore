@@ -21,6 +21,7 @@ limitations under the License.
 'use strict';
 
 const QueryString = exports;
+const Buffer = require('buffer').Buffer;
 
 // This constructor is used to store parsed query string values. Instantiating
 // this is faster than explicitly calling `Object.create(null)` to get a
@@ -28,9 +29,81 @@ const QueryString = exports;
 function ParsedQueryString() {}
 ParsedQueryString.prototype = Object.create(null);
 
+
+// a safe fast alternative to decodeURIComponent
+QueryString.unescapeBuffer = function(s, decodeSpaces) {
+  var out = Buffer.allocUnsafe(s.length);
+  var state = 0;
+  var n, m, hexchar;
+
+  for (var inIndex = 0, outIndex = 0; inIndex <= s.length; inIndex++) {
+    var c = inIndex < s.length ? s.charCodeAt(inIndex) : NaN;
+    switch (state) {
+      case 0: // Any character
+        switch (c) {
+          case 37: // '%'
+            n = 0;
+            m = 0;
+            state = 1;
+            break;
+          case 43: // '+'
+            if (decodeSpaces)
+              c = 32; // ' '
+          // falls through
+          default:
+            out[outIndex++] = c;
+            break;
+        }
+        break;
+
+      case 1: // First hex digit
+        hexchar = c;
+        if (c >= 48/*0*/ && c <= 57/*9*/) {
+          n = c - 48/*0*/;
+        } else if (c >= 65/*A*/ && c <= 70/*F*/) {
+          n = c - 65/*A*/ + 10;
+        } else if (c >= 97/*a*/ && c <= 102/*f*/) {
+          n = c - 97/*a*/ + 10;
+        } else {
+          out[outIndex++] = 37/*%*/;
+          out[outIndex++] = c;
+          state = 0;
+          break;
+        }
+        state = 2;
+        break;
+
+      case 2: // Second hex digit
+        state = 0;
+        if (c >= 48/*0*/ && c <= 57/*9*/) {
+          m = c - 48/*0*/;
+        } else if (c >= 65/*A*/ && c <= 70/*F*/) {
+          m = c - 65/*A*/ + 10;
+        } else if (c >= 97/*a*/ && c <= 102/*f*/) {
+          m = c - 97/*a*/ + 10;
+        } else {
+          out[outIndex++] = 37/*%*/;
+          out[outIndex++] = hexchar;
+          out[outIndex++] = c;
+          break;
+        }
+        out[outIndex++] = 16 * n + m;
+        break;
+    }
+  }
+
+  // TODO support returning arbitrary buffers.
+
+  return out.slice(0, outIndex - 1);
+};
+
+
 function qsUnescape(s, decodeSpaces) {
-    print(s);
+  try {
     return decodeURIComponent(s);
+  } catch (e) {
+    return QueryString.unescapeBuffer(s, decodeSpaces).toString();
+  }
 }
 QueryString.unescape = qsUnescape;
 
@@ -356,4 +429,3 @@ function decodeStr(s, decoder) {
     return QueryString.unescape(s, true);
   }
 }
-

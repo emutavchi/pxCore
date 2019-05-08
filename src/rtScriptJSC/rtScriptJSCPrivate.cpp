@@ -2,6 +2,19 @@
 
 #include <memory>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+JS_EXPORT JSWeakRef JSWeakCreate(JSContextGroupRef, JSObjectRef);
+JS_EXPORT void JSWeakRetain(JSContextGroupRef, JSWeakRef);
+JS_EXPORT void JSWeakRelease(JSContextGroupRef, JSWeakRef);
+JS_EXPORT JSObjectRef JSWeakGetObject(JSWeakRef);
+
+#ifdef __cplusplus
+}
+#endif
+
 namespace {
 
 static void rtJSCContextPrivate_finalize(JSObjectRef obj)
@@ -158,12 +171,79 @@ void rtJSCProtected::releaseProtected()
   if (m_contextRef && m_object) {
     m_priv->removeProtected(this);
     JSValueUnprotect(m_contextRef, m_object);
-    releaseGlobalContexLater(m_contextRef);
+    JSGlobalContextRelease(m_contextRef);
+    // releaseGlobalContexLater(m_contextRef);
     m_object = nullptr;
     m_contextRef = nullptr;
     m_priv = nullptr;
   }
 }
 
+rtJSCWeak::rtJSCWeak()
+{
+}
+
+rtJSCWeak::rtJSCWeak(JSContextRef context, JSObjectRef obj)
+{
+  m_groupRef = JSContextGetGroup(JSContextGetGlobalContext(context));
+  m_weakRef = JSWeakCreate(m_groupRef, obj);
+}
+
+rtJSCWeak::rtJSCWeak(const rtJSCWeak& other)
+  : m_groupRef(other.m_groupRef)
+  , m_weakRef(other.m_weakRef)
+{
+  if (m_groupRef && m_weakRef)
+    JSWeakRetain(m_groupRef, m_weakRef);
+}
+
+rtJSCWeak::rtJSCWeak(rtJSCWeak&& other) noexcept
+  : m_groupRef(std::exchange(other.m_groupRef, nullptr))
+  , m_weakRef(std::exchange(other.m_weakRef, nullptr))
+{
+}
+
+rtJSCWeak::~rtJSCWeak()
+{
+  releaseWeakRef();
+}
+
+void rtJSCWeak::releaseWeakRef()
+{
+  if (m_groupRef && m_weakRef) {
+    JSWeakRelease(m_groupRef, m_weakRef);
+    m_groupRef = nullptr;
+    m_weakRef = nullptr;
+  }
+}
+
+rtJSCWeak& rtJSCWeak::operator=(const rtJSCWeak &other)
+{
+  if (this != &other) {
+    releaseWeakRef();
+    m_groupRef = other.m_groupRef;
+    m_weakRef = other.m_weakRef;
+    if (m_groupRef && m_weakRef)
+      JSWeakRetain(m_groupRef, m_weakRef);
+  }
+  return *this;
+}
+
+rtJSCWeak& rtJSCWeak::operator=(rtJSCWeak &&other) noexcept
+{
+  if (this != &other) {
+    releaseWeakRef();
+    m_groupRef = std::exchange(other.m_groupRef, nullptr);
+    m_weakRef = std::exchange(other.m_weakRef, nullptr);
+  }
+  return *this;
+}
+
+JSObjectRef rtJSCWeak::wrapped() const
+{
+  if (m_groupRef)
+    return JSWeakGetObject(m_weakRef);
+  return nullptr;
+}
 
 }  // RtJSC
