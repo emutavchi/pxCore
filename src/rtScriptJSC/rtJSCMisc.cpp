@@ -1,7 +1,6 @@
 #include "rtJSCMisc.h"
 
 #include "rtLog.h"
-#include "pxTimer.h"
 
 #include <unistd.h>
 #include <stdio.h>
@@ -9,6 +8,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+#include <algorithm>
 #include <list>
 #include <memory>
 #include <cassert>
@@ -18,6 +18,7 @@
 #include <mutex>
 #include <map>
 #include <queue>
+#include <chrono>
 
 #if defined(USE_GLIB)
 #include <glib.h>
@@ -31,6 +32,7 @@
 extern "C" {
 #endif
   JS_EXPORT void JSRemoteInspectorStart(void);
+  JS_EXPORT void JSRemoteInspectorSetLogToSystemConsole(bool logToSystemConsole);
 #ifdef __cplusplus
 }
 #endif
@@ -45,74 +47,53 @@ void initializeThreading();
 
 namespace RtJSC {
 
-static void releaseGlobalContexNow();
 static void dispatchPending();
+static void dispatchTimeouts();
 
 #if defined(USE_GLIB)
 static GMainLoop *gMainLoop = nullptr;
+#endif
 
 void initMainLoop()
 {
   WTF::initializeMainThread();
   JSC::initializeThreading();
+#if defined(USE_GLIB)
   if (!gMainLoop && g_main_depth() == 0) {
     gMainLoop = g_main_loop_new (nullptr, false);
   }
+#endif
   JSRemoteInspectorStart();
+  JSRemoteInspectorSetLogToSystemConsole(true);
 }
 
 void pumpMainLoop()
 {
   dispatchPending();
+  dispatchTimeouts();
+
 #if defined(USE_UV)
   {
     auto uvloop = uv_default_loop();
     uv_run(uvloop, UV_RUN_NOWAIT);
   }
 #endif
+
+#if defined(USE_GLIB)
   if (gMainLoop && g_main_depth() == 0) {
     gboolean ret;
     do {
       ret = g_main_context_iteration(nullptr, false);
     } while(ret);
   }
-  releaseGlobalContexNow();
+#endif
 }
 
-#else
-
-static void dispatchTimers();
-
-void initMainLoop()
-{
-  WTF::initializeMainThread();
-  JSC::initializeThreading();
-}
-
-void pumpMainLoop()
-{
-  dispatchPending();
-  dispatchTimers();
-  releaseGlobalContexNow();
-}
-#endif  // defined(USE_GLIB)
-
-static std::list<JSGlobalContextRef> gCtxToRelease;
 static std::list<std::function<void ()>> gPendingFun;
 static std::mutex gDispatchMutex;
 
-static void releaseGlobalContexNow() {
-  std::list<JSGlobalContextRef> ctxVec;
-  ctxVec.swap(gCtxToRelease);
-  for(auto& ctx : ctxVec)
-    JSGlobalContextRelease(ctx);
-}
-
-void releaseGlobalContexLater(JSGlobalContextRef ctx) {
-  gCtxToRelease.push_back(ctx);
-}
-
-void printException(JSContextRef ctx, JSValueRef exception) {
+void printException(JSContextRef ctx, JSValueRef exception)
+{
   JSStringRef exceptStr = JSValueToStringCopy(ctx, exception, nullptr);
   rtString errorStr = jsToRtString(exceptStr);
   JSStringRelease(exceptStr);
@@ -159,98 +140,95 @@ void dispatchOnMainLoop(std::function<void ()>&& fun)
   gPendingFun.push_back(std::move(fun));
 }
 
-struct TimerInfo
+struct TimeoutInfo
 {
   std::function<void ()> callback;
-  double fireTime;
-  double intervalMs;
+  std::chrono::time_point<std::chrono::steady_clock> fireTime;
+  std::chrono::milliseconds interval;
   bool repeat;
   uint32_t tag;
   bool canceled;
-  ~TimerInfo();
 };
 
-static std::map<uint32_t, TimerInfo*> gTimerMap;
-
-TimerInfo::~TimerInfo()
+struct TimeoutInfoComparator
 {
-  gTimerMap.erase(tag);
-}
-
-#if defined(USE_GLIB)
-static gboolean timerCallback(gpointer user_data)
-{
-  TimerInfo* info = reinterpret_cast<TimerInfo*>(user_data);
-  bool repeat = info->repeat;
-  info->callback();
-  return repeat ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;
-}
-static void timerDestroy(gpointer user_data)
-{
-  TimerInfo* info = reinterpret_cast<TimerInfo*>(user_data);
-  delete info;
-}
-#else
-struct TimerInfoComparator
-{
-  constexpr bool operator()(const TimerInfo *lhs, const TimerInfo *rhs) const
-  {
-    return lhs->fireTime >= rhs->fireTime;
+  constexpr bool operator()(const TimeoutInfo *lhs, const TimeoutInfo *rhs) const {
+    return !((lhs->fireTime < rhs->fireTime) ||
+             ((lhs->fireTime == rhs->fireTime) && (lhs->tag < rhs->tag)));
   }
 };
-std::priority_queue<TimerInfo*, std::vector<TimerInfo*>, TimerInfoComparator> gTimerQueue;
-#endif
+
+class TimeoutQueue : public std::priority_queue<TimeoutInfo*, std::vector<TimeoutInfo*>, TimeoutInfoComparator>
+{
+public:
+  void pushTimeouts(const std::vector<TimeoutInfo*>& timerVec)
+  {
+    if (!timerVec.size())
+      return;
+    c.reserve(c.size() + timerVec.size());
+    c.insert(c.end(),timerVec.begin(), timerVec.end());
+    std::make_heap(c.begin(), c.end(), comp);
+  }
+  bool updateForInfo(const TimeoutInfo* info)
+  {
+    auto it = std::find(c.begin(), c.end(), info);
+    if (it != c.end()) {
+      std::make_heap(c.begin(), c.end(), comp);
+      return true;
+    }
+    return false;
+  }
+};
+
+static std::map<uint32_t, TimeoutInfo*> gTimeoutMap;
+static TimeoutQueue gTimeoutQueue;
+static uint32_t gTimeoutIdx = 0;
 
 uint32_t installTimeout(double intervalMs, bool repeat, std::function<void ()>&& fun)
 {
   if (intervalMs < 0)
     intervalMs = 0;
 
-  double currentTime = pxMilliseconds();
-  TimerInfo *info = new TimerInfo;
-  info->fireTime = currentTime + intervalMs;
+  auto currentTime = std::chrono::steady_clock::now();
+  auto interval = std::chrono::milliseconds(static_cast<uint32_t>(intervalMs));
+
+  TimeoutInfo *info = new TimeoutInfo;
+  info->interval = interval;
+  info->fireTime = currentTime + info->interval;
   info->repeat = repeat;
-  info->intervalMs = intervalMs;
   info->callback = std::move(fun);
   info->canceled = false;
-#if defined(USE_GLIB)
-  info->tag = g_timeout_add_full(
-    G_PRIORITY_DEFAULT, static_cast<guint>(intervalMs), timerCallback, info, timerDestroy);
-#else
-  static uint32_t timerIdx = 0;
-  info->tag = ++timerIdx;
-  gTimerQueue.push(info);
-#endif
-  gTimerMap[info->tag] = info;
+  info->tag = ++gTimeoutIdx;  // FIXME:
+
+  gTimeoutMap[info->tag] = info;
+  gTimeoutQueue.push(info);
   return info->tag;
 }
 
 void clearTimeout(uint32_t tag)
 {
-#if defined(USE_GLIB)
-  if (gTimerMap.find(tag) != gTimerMap.end()) {
-    g_source_remove(tag);
-  }
-#else
-  auto it = gTimerMap.find(tag);
-  if (it != gTimerMap.end()) {
-    TimerInfo* info = it->second;
+  auto it = gTimeoutMap.find(tag);
+  if (it != gTimeoutMap.end()) {
+    TimeoutInfo* info = it->second;
+    constexpr auto steadyMinimal = std::chrono::steady_clock::time_point::min();
+    info->fireTime = steadyMinimal;
     info->canceled = true;
-    info->callback = [](){};
-    gTimerMap.erase(it);
+    gTimeoutMap.erase(it);
+    gTimeoutQueue.updateForInfo(info);
   }
-#endif
 }
 
-#if !defined(USE_GLIB)
-static void dispatchTimers()
+static void dispatchTimeouts()
 {
-  double currentTime = pxMilliseconds();
-  while(!gTimerQueue.empty()) {
-    TimerInfo* info = gTimerQueue.top();
-    if (info->fireTime > currentTime)
+  const auto currentTime = std::chrono::steady_clock::now();
+
+  std::vector<TimeoutInfo*> timeoutsToRepeat;
+  while(!gTimeoutQueue.empty()) {
+    TimeoutInfo* info = gTimeoutQueue.top();
+    if (!info->canceled && info->fireTime > currentTime) {
       break;
-    gTimerQueue.pop();
+    }
+    gTimeoutQueue.pop();
     if (info->canceled) {
       delete info;
       continue;
@@ -258,14 +236,14 @@ static void dispatchTimers()
     info->callback();
     if (!info->repeat || info->canceled) {
       if (!info->canceled)
-        clearTimeout(info->tag);
+        gTimeoutMap.erase(info->tag);
       delete info;
       continue;
     }
-    info->fireTime = currentTime + info->intervalMs;
-    gTimerQueue.push(info);
+    info->fireTime = currentTime + info->interval;
+    timeoutsToRepeat.push_back(info);
   }
+  gTimeoutQueue.pushTimeouts(timeoutsToRepeat);
 }
-#endif
 
 }  // RtJSC

@@ -228,11 +228,8 @@ static JSValueRef rtObjectWrapper_getProperty(JSContextRef context, JSObjectRef 
   if (!strcmp(propName.cString(), "toString"))
     return JSObjectMakeFunctionWithCallback(context, nullptr, rtObjectWrapper_toStringCallback);
 
-  if (!strcmp(propName.cString(), "toJSON")) {
+  if (!strcmp(propName.cString(), "toJSON"))
     return JSValueMakeUndefined(context);
-    static JSStringRef script = JSStringCreateWithUTF8CString("return {}");
-    return JSObjectMakeFunction(context, nullptr, 0, nullptr, script, nullptr, 1, exception);
-  }
 
   rtValue v;
   rtError e = RT_OK;
@@ -735,8 +732,8 @@ rtError JSObjectWrapper::Get(const char* name, rtValue* value) const
     return RT_OK;
 
   if (strcmp(name, "description") == 0) {
+    // FIXME: this should return a function
     return RT_PROP_NOT_FOUND;
-    // TODO: this should return a function
     JSValueRef exc = nullptr;
     JSStringRef descJsStr = JSValueToStringCopy(m_contextRef, m_object, &exc);
     if (exc) {

@@ -34,7 +34,6 @@ void dispatchOnMainLoop(std::function<void ()>&& fun);
 uint32_t installTimeout(double intervalMs, bool repeat, std::function<void ()>&& fun);
 void clearTimeout(uint32_t tag);
 void printException(JSContextRef ctx, JSValueRef exception);
-void releaseGlobalContexLater(JSGlobalContextRef ctx);
 rtString jsToRtString(JSStringRef str);
 bool fileExists(const char* name);
 std::string readFile(const char *file);

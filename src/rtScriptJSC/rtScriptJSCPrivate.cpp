@@ -172,7 +172,6 @@ void rtJSCProtected::releaseProtected()
     m_priv->removeProtected(this);
     JSValueUnprotect(m_contextRef, m_object);
     JSGlobalContextRelease(m_contextRef);
-    // releaseGlobalContexLater(m_contextRef);
     m_object = nullptr;
     m_contextRef = nullptr;
     m_priv = nullptr;

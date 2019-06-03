@@ -147,4 +147,22 @@ WebSocket.prototype.closeimmediate = function() {
     this.close();
 }
 
+Object.defineProperty(WebSocket.prototype, 'onopen', {
+    set : function(fn) {
+        this.emit.$on('open', fn);
+    }
+})
+
+Object.defineProperty(WebSocket.prototype, 'onerror', {
+    set : function(fn) {
+        this.emit.$on('error', fn);
+    }
+})
+
+Object.defineProperty(WebSocket.prototype, 'onmessage', {
+    set : function(fn) {
+        this.emit.$on('message', fn);
+    }
+})
+
 module.exports = WebSocket;
