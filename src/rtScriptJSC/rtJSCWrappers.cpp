@@ -468,7 +468,7 @@ static JSValueRef rtObjectWrapper_wrapObject(JSContextRef context, rtObjectRef o
       rtError rc = obj->Get("length", &length);
       if (rc == RT_OK && (l = length.toUInt32()))
       {
-        JSValueRef *arrArgs = alloca(sizeof(JSValueRef) * l);
+        JSValueRef *arrArgs = (JSValueRef *)alloca(sizeof(JSValueRef) * l);
         for (uint32_t i = 0; i < l; ++i)
         {
           rtValue v;
