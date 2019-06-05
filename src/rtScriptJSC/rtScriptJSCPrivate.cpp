@@ -1,6 +1,7 @@
 #include "rtScriptJSCPrivate.h"
 
 #include <memory>
+#include <cassert>
 
 #ifdef __cplusplus
 extern "C" {
@@ -84,6 +85,12 @@ rtJSCContextPrivate* rtJSCContextPrivate::create(JSGlobalContextRef contextRef)
   return priv.release();
 }
 
+rtJSCContextPrivate::~rtJSCContextPrivate()
+{
+  assert(m_protected.empty());
+  assert(m_moduleCache.empty());
+}
+
 void rtJSCContextPrivate::setInCtx(JSGlobalContextRef contextRef, rtJSCContextPrivate* priv)
 {
   // released in rtJSCContextPrivate_finalize
@@ -156,9 +163,15 @@ rtJSCProtected::rtJSCProtected(JSContextRef context, JSObjectRef object)
   : m_contextRef(JSGlobalContextRetain(JSContextGetGlobalContext(context)))
   , m_object(object)
 {
-  JSValueProtect(m_contextRef, m_object);
   m_priv = rtJSCContextPrivate::fromCtx(m_contextRef);
-  m_priv->addProtected(this);
+  if (m_priv) {
+    JSValueProtect(m_contextRef, m_object);
+    m_priv->addProtected(this);
+  } else {
+    JSGlobalContextRelease(m_contextRef);
+    m_object = nullptr;
+    m_contextRef = nullptr;
+  }
 }
 
 rtJSCProtected::~rtJSCProtected()
@@ -169,6 +182,7 @@ rtJSCProtected::~rtJSCProtected()
 void rtJSCProtected::releaseProtected()
 {
   if (m_contextRef && m_object) {
+    RtJSC::assertIsMainThread();
     m_priv->removeProtected(this);
     JSValueUnprotect(m_contextRef, m_object);
     JSGlobalContextRelease(m_contextRef);
@@ -204,6 +218,7 @@ rtJSCWeak::rtJSCWeak(rtJSCWeak&& other) noexcept
 
 rtJSCWeak::~rtJSCWeak()
 {
+  RtJSC::assertIsMainThread();
   releaseWeakRef();
 }
 
@@ -240,7 +255,7 @@ rtJSCWeak& rtJSCWeak::operator=(rtJSCWeak &&other) noexcept
 
 JSObjectRef rtJSCWeak::wrapped() const
 {
-  if (m_groupRef)
+  if (m_weakRef)
     return JSWeakGetObject(m_weakRef);
   return nullptr;
 }

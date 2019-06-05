@@ -9,16 +9,17 @@
 #include <sys/stat.h>
 
 #include <algorithm>
-#include <list>
-#include <memory>
 #include <cassert>
+#include <chrono>
 #include <fstream>
 #include <iostream>
-#include <sstream>
-#include <mutex>
+#include <list>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <queue>
-#include <chrono>
+#include <sstream>
+#include <thread>
 
 #if defined(USE_GLIB)
 #include <glib.h>
@@ -54,6 +55,8 @@ static void dispatchTimeouts();
 static GMainLoop *gMainLoop = nullptr;
 #endif
 
+static std::thread::id gMainThreadId;
+
 void initMainLoop()
 {
   WTF::initializeMainThread();
@@ -65,6 +68,7 @@ void initMainLoop()
 #endif
   JSRemoteInspectorStart();
   JSRemoteInspectorSetLogToSystemConsole(true);
+  gMainThreadId = std::this_thread::get_id();
 }
 
 void pumpMainLoop()
@@ -142,7 +146,7 @@ void dispatchOnMainLoop(std::function<void ()>&& fun)
 
 struct TimeoutInfo
 {
-  std::function<void ()> callback;
+  std::function<int ()> callback;
   std::chrono::time_point<std::chrono::steady_clock> fireTime;
   std::chrono::milliseconds interval;
   bool repeat;
@@ -184,7 +188,7 @@ static std::map<uint32_t, TimeoutInfo*> gTimeoutMap;
 static TimeoutQueue gTimeoutQueue;
 static uint32_t gTimeoutIdx = 0;
 
-uint32_t installTimeout(double intervalMs, bool repeat, std::function<void ()>&& fun)
+uint32_t installTimeout(double intervalMs, bool repeat, std::function<int ()>&& fun)
 {
   if (intervalMs < 0)
     intervalMs = 0;
@@ -233,8 +237,8 @@ static void dispatchTimeouts()
       delete info;
       continue;
     }
-    info->callback();
-    if (!info->repeat || info->canceled) {
+    int rc = info->callback();
+    if (rc != 0 || !info->repeat || info->canceled) {
       if (!info->canceled)
         gTimeoutMap.erase(info->tag);
       delete info;
@@ -244,6 +248,11 @@ static void dispatchTimeouts()
     timeoutsToRepeat.push_back(info);
   }
   gTimeoutQueue.pushTimeouts(timeoutsToRepeat);
+}
+
+void assertIsMainThread()
+{
+  assert(std::this_thread::get_id() == gMainThreadId);
 }
 
 }  // RtJSC

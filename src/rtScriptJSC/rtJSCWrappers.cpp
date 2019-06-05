@@ -7,6 +7,7 @@
 #include <map>
 #include <unordered_set>
 #include <string>
+#include <alloca.h>
 
 using namespace RtJSC;
 
@@ -222,14 +223,12 @@ static JSValueRef rtObjectWrapper_getProperty(JSContextRef context, JSObjectRef 
     return JSValueMakeUndefined(context);
 
   if (!strcmp(propName.cString(), "Symbol.toPrimitive") ||
-      !strcmp(propName.cString(), "valueOf"))
+      !strcmp(propName.cString(), "valueOf") ||
+      !strcmp(propName.cString(), "toJSON"))
     return JSValueMakeUndefined(context);
 
   if (!strcmp(propName.cString(), "toString"))
     return JSObjectMakeFunctionWithCallback(context, nullptr, rtObjectWrapper_toStringCallback);
-
-  if (!strcmp(propName.cString(), "toJSON"))
-    return JSValueMakeUndefined(context);
 
   rtValue v;
   rtError e = RT_OK;
@@ -252,11 +251,11 @@ static JSValueRef rtObjectWrapper_getProperty(JSContextRef context, JSObjectRef 
     {
       JSValueRef res = nullptr;
       auto &cache = p->wrapperCache[propName.cString()];
-      if (cache.first == o.getPtr() && cache.second.wrapped())
+      if (cache.first == o.getPtr())
       {
         res = cache.second.wrapped();
       }
-      else
+      if (!res)
       {
         res = rtObjectWrapper_wrapPromise(JSContextGetGlobalContext(context), o);
         if (JSValueIsObject(context, res)) {
@@ -465,19 +464,18 @@ static JSValueRef rtObjectWrapper_wrapObject(JSContextRef context, rtObjectRef o
     if (!strcmp(objMap->className, "pxObjectChildren"))
     {
       rtValue length;
+      uint32_t l;
       rtError rc = obj->Get("length", &length);
-      if (rc == RT_OK)
+      if (rc == RT_OK && (l = length.toUInt32()))
       {
-        uint32_t l = length.toUInt32();
-        std::vector<JSValueRef> arrArgs;
-        arrArgs.reserve(l);
+        JSValueRef *arrArgs = alloca(sizeof(JSValueRef) * l);
         for (uint32_t i = 0; i < l; ++i)
         {
           rtValue v;
           obj->Get(i, &v);
-          arrArgs.push_back(rtToJs(context, v));
+          arrArgs[i] = rtToJs(context, v);
         }
-        return JSObjectMakeArray(context, arrArgs.size(), arrArgs.data(), nullptr);
+        return JSObjectMakeArray(context, l, arrArgs, nullptr);
       }
       return JSObjectMakeArray(context, 0, nullptr, nullptr);
     }
@@ -567,6 +565,7 @@ namespace RtJSC {
 
 rtError jsToRt(JSContextRef context, JSValueRef valueRef, rtValue &result, JSValueRef *exception)
 {
+  RtJSC::assertIsMainThread();
   static const auto convertObject =
     [](JSContextRef ctx, JSValueRef valueRef, rtValue &result, JSValueRef &exc) {
       if (JSValueIsDate(ctx, valueRef)) {
@@ -644,6 +643,7 @@ rtError jsToRt(JSContextRef context, JSValueRef valueRef, rtValue &result, JSVal
 
 JSValueRef rtToJs(JSContextRef context, const rtValue &v)
 {
+  RtJSC::assertIsMainThread();
   if (!context) {
     rtLogWarn("Lost JS context!");
     return nullptr;
@@ -711,15 +711,17 @@ JSObjectWrapper::JSObjectWrapper(JSContextRef context, JSObjectRef object, bool 
   : rtJSCProtected(context, object)
   , m_isArray(isArray)
 {
-
+  RtJSC::assertIsMainThread();
 }
 
 JSObjectWrapper::~JSObjectWrapper()
 {
+  RtJSC::assertIsMainThread();
 }
 
 rtError JSObjectWrapper::Get(const char* name, rtValue* value) const
 {
+  RtJSC::assertIsMainThread();
   if (!m_contextRef || !m_object) {
     rtLogWarn("Lost JS context!");
     return RT_FAIL;
@@ -792,6 +794,7 @@ rtError JSObjectWrapper::Get(const char* name, rtValue* value) const
 
 rtError JSObjectWrapper::Get(uint32_t i, rtValue* value) const
 {
+  RtJSC::assertIsMainThread();
   if (!value)
     return RT_ERROR_INVALID_ARG;
   JSValueRef exc = nullptr;
@@ -810,6 +813,7 @@ rtError JSObjectWrapper::Get(uint32_t i, rtValue* value) const
 
 rtError JSObjectWrapper::Set(const char* name, const rtValue* value)
 {
+  RtJSC::assertIsMainThread();
   if (!m_contextRef) {
     rtLogWarn("Lost JS context!");
     return RT_FAIL;
@@ -832,6 +836,7 @@ rtError JSObjectWrapper::Set(const char* name, const rtValue* value)
 
 rtError JSObjectWrapper::Set(uint32_t i, const rtValue* value)
 {
+  RtJSC::assertIsMainThread();
   if (!value)
     return RT_FAIL;
   JSValueRef valueRef = rtToJs(m_contextRef, *value);
@@ -846,35 +851,42 @@ rtError JSObjectWrapper::Set(uint32_t i, const rtValue* value)
 
 JSFunctionWrapper::JSFunctionWrapper(JSContextRef context, JSObjectRef thisObj, JSObjectRef funcObj)
   : rtJSCProtected(context, funcObj)
-  , m_thisObj(thisObj)
+  , m_thisObj(context, thisObj)
 {
+  RtJSC::assertIsMainThread();
 }
 
 JSFunctionWrapper::JSFunctionWrapper(JSContextRef context, JSObjectRef funcObj)
   : rtJSCProtected(context, funcObj)
 {
+  RtJSC::assertIsMainThread();
 }
 
 JSFunctionWrapper::~JSFunctionWrapper()
 {
+  RtJSC::assertIsMainThread();
 }
 
 rtError JSFunctionWrapper::Send(int numArgs, const rtValue* args, rtValue* result)
 {
+  RtJSC::assertIsMainThread();
   if (!m_contextRef || !m_object) {
     rtLogWarn("Lost JS context!");
     return RT_FAIL;
   }
-  std::vector<JSValueRef> jsArgs;
+  if (numArgs > 10) {
+    rtLogWarn("Too many arguments!");
+    return RT_FAIL;
+  }
+  JSValueRef jsArgs[10] = { 0 };
   if (numArgs) {
-    jsArgs.reserve(numArgs);
     for (int i = 0; i < numArgs; ++i) {
       const rtValue &rtVal = args[i];
-      jsArgs.push_back(rtToJs(m_contextRef, rtVal));
+      jsArgs[i] = rtToJs(m_contextRef, rtVal);
     }
   }
   JSValueRef exception = nullptr;
-  JSValueRef jsResult = JSObjectCallAsFunction(m_contextRef, m_object, m_thisObj, numArgs, jsArgs.data(), &exception);
+  JSValueRef jsResult = JSObjectCallAsFunction(m_contextRef, m_object, m_thisObj.wrapped(), numArgs, jsArgs, &exception);
   if (exception) {
     printException(m_contextRef, exception);
     JSGlobalContextRelease(m_contextRef);

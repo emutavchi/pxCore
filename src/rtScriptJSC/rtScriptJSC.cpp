@@ -158,7 +158,9 @@ rtError rtInstallTimeout(int numArgs, const rtValue* args, rtValue* result, bool
       rtError rc = timeoutCbRef.rtFunctionBase::Send(timeoutArgs.size(), timeoutArgs.data());
       if (rc != RT_OK) {
         rtLogError("timer callback send failed, rc = %d", rc);
+        return 1;
       }
+      return 0;
     });
 
   if (result)
@@ -285,6 +287,7 @@ rtJSCContext::~rtJSCContext()
 
   RtJSC::installTimeout(1000, false, [group = m_contextGroup] {
       JSContextGroupRelease(group);
+      return 0;
   });
 
   rtLogInfo("%s end", __FUNCTION__);

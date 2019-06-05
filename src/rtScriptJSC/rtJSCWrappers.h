@@ -35,7 +35,7 @@ class JSFunctionWrapper: public RefCounted<rtIFunction>, public rtJSCProtected
   size_t hash() override { return -1; }
   void setHash(size_t hash) override { UNUSED_PARAM(hash); }
   rtError Send(int numArgs, const rtValue* args, rtValue* result) override;
-  JSObjectRef m_thisObj { nullptr };
+  rtJSCWeak m_thisObj;
 public:
   JSFunctionWrapper(JSContextRef context, JSObjectRef thisObj, JSObjectRef funcObj);
   JSFunctionWrapper(JSContextRef context, JSObjectRef funcObj);

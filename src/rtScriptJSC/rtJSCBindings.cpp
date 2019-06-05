@@ -12,12 +12,19 @@
 #include <sys/stat.h>
 #include <chrono>
 #include <list>
+#include <cassert>
 
 namespace RtJSC {
 
 static JSValueRef noopCallback(JSContextRef ctx, JSObjectRef fun, JSObjectRef, size_t argumentCount, const JSValueRef arguments[], JSValueRef *exception)
 {
   rtLogDebug("no-op");
+  return JSValueMakeUndefined(ctx);
+}
+
+static JSValueRef exitCallback(JSContextRef ctx, JSObjectRef fun, JSObjectRef, size_t argumentCount, const JSValueRef arguments[], JSValueRef *exception)
+{
+  RtJSC::dispatchOnMainLoop([] () {  _exit(0); });
   return JSValueMakeUndefined(ctx);
 }
 
@@ -121,6 +128,11 @@ static JSValueRef requireCallback(JSContextRef ctx, JSObjectRef, JSObjectRef thi
 
     JSGlobalContextRef globalCtx = JSContextGetGlobalContext(ctx);
     rtJSCContextPrivate* priv = rtJSCContextPrivate::fromCtx(globalCtx);
+    if (!priv) {
+      rtLogError(" %s  ... no priv object.",__PRETTY_FUNCTION__);
+      break;
+    }
+
     if (JSObjectRef moduleObj = priv->findModule(path)) {
       JSStringRelease(reqArgStr);
       return moduleObj;
@@ -128,7 +140,7 @@ static JSValueRef requireCallback(JSContextRef ctx, JSObjectRef, JSObjectRef thi
 
     rtLogInfo("Loading %s", path.cString());
     std::string codeStr = readFile(path.cString());
-    if(codeStr.empty()) {
+    if (codeStr.empty()) {
       JSStringRelease(reqArgStr);
       rtLogError(" %s  ... load error / not found.",__PRETTY_FUNCTION__);
       break;
@@ -208,6 +220,7 @@ static JSValueRef runInNewContext(JSContextRef ctx, JSObjectRef, JSObjectRef thi
   JSGlobalContextRef newCtx = JSGlobalContextCreateInGroup(groupRef, nullptr);
 
   auto priv = rtJSCContextPrivate::fromCtx(JSContextGetGlobalContext(ctx));
+  assert(priv != nullptr);
   rtJSCContextPrivate::setInCtx(newCtx, priv);
 
   do {
@@ -304,6 +317,7 @@ void injectBindings(JSContextRef jsContext)
       };
 
   injectFun(jsContext, "require", requireCallback);
+  injectFun(jsContext, "_exit", exitCallback);
   injectFun(jsContext, "_platform", noopCallback);
   injectFun(jsContext, "_hrtime", hrTimeCallback);
   injectFun(jsContext, "_readFile", readFileCallback);

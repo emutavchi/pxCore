@@ -32,6 +32,8 @@ class rtJSCContextPrivate
     m_protected.erase(o);
   }
 public:
+  ~rtJSCContextPrivate();
+
   unsigned long AddRef() {
     return rtAtomicInc(&m_refCount);
   }
