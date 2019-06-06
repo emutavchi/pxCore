@@ -141,7 +141,7 @@ rtError rtInstallTimeout(int numArgs, const rtValue* args, rtValue* result, bool
   }
 
   double interval = 0;
-  if (numArgs >=2 && args[1].getType() == RT_doubleType)
+  if (numArgs >=2)
     interval = args[1].toDouble();
 
   rtFunctionRef timeoutCb = args[0].toFunction();
