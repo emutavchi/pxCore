@@ -200,7 +200,11 @@ static JSValueRef rtObjectWrapper_convertToType(JSContextRef context, JSObjectRe
   if (e != RT_OK)
     return JSValueMakeUndefined(context);
 
-  JSStringRef jsStr = JSStringCreateWithUTF8CString(desc.cString());
+  rtString resultStr = "[object ";
+  resultStr += desc;
+  resultStr += "]";
+
+  JSStringRef jsStr = JSStringCreateWithUTF8CString(resultStr.cString());
   JSValueRef jsVal = JSValueMakeString(context, jsStr);
   JSStringRelease(jsStr);
   return jsVal;

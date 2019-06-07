@@ -13,6 +13,15 @@
 #include <chrono>
 #include <list>
 #include <cassert>
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+JS_EXPORT JSGlobalContextRef JSObjectGetGlobalContext(JSObjectRef object);
+
+#ifdef __cplusplus
+}
+#endif
 
 namespace RtJSC {
 
@@ -209,6 +218,71 @@ static void markJSContext(JSContextRef ctx, JSObjectRef globalObj, JSValueRef *e
   JSObjectSetProperty(globalCtx, globalObj, globalName, globalObj, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, nullptr);
 }
 
+static JSStringRef sandboxGlobalPrivateName()
+{
+  static JSStringRef nameStr = JSStringCreateWithUTF8CString("__rt_sanbox_global");
+  return nameStr;
+}
+
+static JSValueRef runInContext(JSContextRef ctx, JSObjectRef, JSObjectRef thisobj, size_t argumentCount, const JSValueRef arguments[], JSValueRef *exception)
+{
+  if (argumentCount < 7)
+    return JSValueMakeUndefined(ctx);
+
+  JSValueRef result = nullptr;
+  do {
+    // sandbox
+    JSObjectRef sandboxRef = JSValueToObject(ctx, arguments[1],  exception);
+    if (exception && *exception)
+      break;
+
+    JSObjectRef sandboxGlobalObj = nullptr;
+
+    JSValueRef sandboxGlobalRef = JSObjectGetProperty(ctx, sandboxRef, sandboxGlobalPrivateName(), nullptr);
+    if (sandboxGlobalRef && JSValueIsObject(ctx, sandboxGlobalRef))
+      sandboxGlobalObj = JSValueToObject(ctx, sandboxGlobalRef,  nullptr);
+
+    JSGlobalContextRef sandboxCtx = nullptr;
+    if (sandboxGlobalObj)
+      sandboxCtx = JSObjectGetGlobalContext(sandboxGlobalObj);
+
+    if (!sandboxCtx)
+      sandboxCtx = JSContextGetGlobalContext(ctx);
+
+    // code
+    JSStringRef codeStr = JSValueToStringCopy(ctx, arguments[0], exception);
+    if (exception && *exception)
+      break;
+
+    JSStringRef fileNameStr = JSValueToStringCopy(ctx, arguments[5], exception);
+    if (exception && *exception) {
+      JSStringRelease(codeStr);
+      break;
+    }
+    JSGlobalContextSetName(sandboxCtx, fileNameStr);
+
+    JSValueRef evalResult = JSEvaluateScript(sandboxCtx, codeStr, sandboxGlobalObj, fileNameStr, 0, exception);
+    JSStringRelease(fileNameStr);
+    JSStringRelease(codeStr);
+    if (exception && *exception)
+      break;
+
+    JSObjectRef funcObj = JSValueToObject(sandboxCtx, evalResult, exception);
+    if (exception && *exception)
+      break;
+
+    JSValueRef args[] = { arguments[3], arguments[4] };
+    result = JSObjectCallAsFunction(sandboxCtx, funcObj, sandboxGlobalObj, 2, args, exception);
+  } while (0);
+
+  if (exception && *exception) {
+    printException(ctx, *exception);
+    return JSValueMakeUndefined(ctx);
+  }
+
+  return result;
+}
+
 static JSValueRef runInNewContext(JSContextRef ctx, JSObjectRef, JSObjectRef thisobj, size_t argumentCount, const JSValueRef arguments[], JSValueRef *exception)
 {
   if (argumentCount < 7)
@@ -292,6 +366,9 @@ static JSValueRef runInNewContext(JSContextRef ctx, JSObjectRef, JSObjectRef thi
 
     JSValueRef args[] = { arguments[3], arguments[4] };
     result = JSObjectCallAsFunction(newCtx, funcObj, newGlobalObj, 2, args, exception);
+
+    JSObjectSetProperty(ctx, sandboxRef, sandboxGlobalPrivateName(), newGlobalObj,
+                        kJSPropertyAttributeDontEnum | kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, exception);
   } while (0);
 
   JSGlobalContextRelease(newCtx);
@@ -322,6 +399,7 @@ void injectBindings(JSContextRef jsContext)
   injectFun(jsContext, "_hrtime", hrTimeCallback);
   injectFun(jsContext, "_readFile", readFileCallback);
   injectFun(jsContext, "_runInNewContext", runInNewContext);
+  injectFun(jsContext, "_runInContext", runInContext);
 
   markJSContext(jsContext, nullptr, nullptr);
 }

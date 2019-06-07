@@ -19,14 +19,11 @@ limitations under the License.
 "use strict";
 
 function runInNewContext(code, sandbox, options, px, xModule, filename, dirname) {
-//    var func = new Function('px', 'module','return ' + code);
-//    return func().bind(sandbox)(px, xModule, filename, dirname);
     return _runInNewContext(code, sandbox, options, px, xModule, filename, dirname);
 }
 
-function runInContext(code, sandbox, options) {
-    var func = new Function('px', 'module','return ' + code);
-    return func().bind(sandbox);
+function runInContext(code, sandbox, options, px, xModule, filename, dirname) {
+    return _runInContext(code, sandbox, options, px, xModule, filename, dirname);
 }
 
 module.exports = {

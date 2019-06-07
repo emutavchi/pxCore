@@ -801,9 +801,12 @@ AppSceneContext.prototype.processCodeBuffer = function(origFilePath, filePath, c
     'exports'
   ]);
 
-  if (isDuk || isJSC) {
+  if (isDuk) {
     vm.runInNewContext(sourceCode, _this.sandbox, { filename: filePath, displayErrors: true },
-                         px, xModule_wrap, filePath, filePath);
+                       px, xModule_wrap, filePath, filePath);
+  } else if (isJSC) {
+    vm.runInContext(sourceCode, _this.sandbox, { filename: filePath, displayErrors: true },
+                       px, xModule_wrap, filePath, filePath);
   } else if (isV8) {
     var moduleFunc = vm.runInNewContext(sourceCode, _this.sandbox, { filename: filePath, displayErrors: true },
                          px, xModule_wrap, filePath, filePath);
