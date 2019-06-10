@@ -150,19 +150,21 @@ void rtJSCContextPrivate::releaseAllProtected()
 }
 
 rtJSCProtected::rtJSCProtected(JSGlobalContextRef context, JSObjectRef object, rtJSCContextPrivate *priv)
-  : m_contextRef(JSGlobalContextRetain(context))
+  : m_contextRef(context)
   , m_object(object)
   , m_priv(priv)
 {
   // TODO: consider using JSWeakRef and JSContextGroupAddMarkingConstraint
+  // JSGlobalContextRetain(m_contextRef);
   JSValueProtect(m_contextRef, m_object);
   m_priv->addProtected(this);
 }
 
 rtJSCProtected::rtJSCProtected(JSContextRef context, JSObjectRef object)
-  : m_contextRef(JSGlobalContextRetain(JSContextGetGlobalContext(context)))
+  : m_contextRef(JSContextGetGlobalContext(context))
   , m_object(object)
 {
+  // JSGlobalContextRetain(m_contextRef);
   m_priv = rtJSCContextPrivate::fromCtx(m_contextRef);
   if (m_priv) {
     JSValueProtect(m_contextRef, m_object);
@@ -185,7 +187,7 @@ void rtJSCProtected::releaseProtected()
     RtJSC::assertIsMainThread();
     m_priv->removeProtected(this);
     JSValueUnprotect(m_contextRef, m_object);
-    JSGlobalContextRelease(m_contextRef);
+    // JSGlobalContextRelease(m_contextRef);
     m_object = nullptr;
     m_contextRef = nullptr;
     m_priv = nullptr;

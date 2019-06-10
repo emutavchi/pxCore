@@ -712,7 +712,7 @@ JSValueRef rtToJs(JSContextRef context, const rtValue &v)
 }
 
 JSObjectWrapper::JSObjectWrapper(JSContextRef context, JSObjectRef object, bool isArray)
-  : rtJSCProtected(context, object)
+  : rtJSCWrapperBase(context, object)
   , m_isArray(isArray)
 {
   RtJSC::assertIsMainThread();
@@ -726,7 +726,7 @@ JSObjectWrapper::~JSObjectWrapper()
 rtError JSObjectWrapper::Get(const char* name, rtValue* value) const
 {
   RtJSC::assertIsMainThread();
-  if (!m_contextRef || !m_object) {
+  if (!context() || !wrapped()) {
     rtLogWarn("Lost JS context!");
     return RT_FAIL;
   }
@@ -741,9 +741,9 @@ rtError JSObjectWrapper::Get(const char* name, rtValue* value) const
     // FIXME: this should return a function
     return RT_PROP_NOT_FOUND;
     JSValueRef exc = nullptr;
-    JSStringRef descJsStr = JSValueToStringCopy(m_contextRef, m_object, &exc);
+    JSStringRef descJsStr = JSValueToStringCopy(context(), wrapped(), &exc);
     if (exc) {
-      printException(m_contextRef, exc);
+      printException(context(), exc);
       return RT_FAIL;
     }
     value->setString(jsToRtString(descJsStr));
@@ -757,7 +757,7 @@ rtError JSObjectWrapper::Get(const char* name, rtValue* value) const
   JSValueRef exc = nullptr;
   if (!strcmp(name, "allKeys")) {
     rtArrayObject* array = new rtArrayObject;
-    JSPropertyNameArrayRef namesRef = JSObjectCopyPropertyNames(m_contextRef, m_object);
+    JSPropertyNameArrayRef namesRef = JSObjectCopyPropertyNames(context(), wrapped());
     size_t size = JSPropertyNameArrayGetCount(namesRef);
     for (size_t i = 0; i < size; ++i) {
       JSStringRef namePtr = JSPropertyNameArrayGetNameAtIndex(namesRef, i);
@@ -769,28 +769,28 @@ rtError JSObjectWrapper::Get(const char* name, rtValue* value) const
   }
 
   JSStringRef namePtr = JSStringCreateWithUTF8CString(name);
-  JSValueRef valueRef = JSObjectGetProperty(m_contextRef, m_object, namePtr, &exc);
+  JSValueRef valueRef = JSObjectGetProperty(context(), wrapped(), namePtr, &exc);
   JSStringRelease(namePtr);
   if (exc) {
-    printException(m_contextRef, exc);
+    printException(context(), exc);
     return RT_FAIL;
   }
 
-  if (!m_isArray && JSValueGetType(m_contextRef, valueRef) == kJSTypeObject) {
-    JSObjectRef objectRef = JSValueToObject(m_contextRef, valueRef, &exc);
+  if (!m_isArray && JSValueGetType(context(), valueRef) == kJSTypeObject) {
+    JSObjectRef objectRef = JSValueToObject(context(), valueRef, &exc);
     if (exc) {
-      printException(m_contextRef, exc);
+      printException(context(), exc);
       return RT_FAIL;
     }
-    if (JSObjectIsFunction(m_contextRef, objectRef)) {
-      value->setFunction(new JSFunctionWrapper(m_contextRef, m_object, objectRef));
+    if (JSObjectIsFunction(context(), objectRef)) {
+      value->setFunction(new JSFunctionWrapper(context(), wrapped(), objectRef));
       return RT_OK;
     }
   }
 
-  rtError ret = jsToRt(m_contextRef, valueRef, *value, &exc);
+  rtError ret = jsToRt(context(), valueRef, *value, &exc);
   if (exc) {
-    printException(m_contextRef, exc);
+    printException(context(), exc);
     return RT_FAIL;
   }
   return ret;
@@ -802,14 +802,14 @@ rtError JSObjectWrapper::Get(uint32_t i, rtValue* value) const
   if (!value)
     return RT_ERROR_INVALID_ARG;
   JSValueRef exc = nullptr;
-  JSValueRef valueRef = JSObjectGetPropertyAtIndex(m_contextRef, m_object, i, &exc);
+  JSValueRef valueRef = JSObjectGetPropertyAtIndex(context(), wrapped(), i, &exc);
   if (exc) {
-    printException(m_contextRef, exc);
+    printException(context(), exc);
     return RT_FAIL;
   }
-  rtError ret = jsToRt(m_contextRef, valueRef, *value, &exc);
+  rtError ret = jsToRt(context(), valueRef, *value, &exc);
   if (exc) {
-    printException(m_contextRef, exc);
+    printException(context(), exc);
     return RT_FAIL;
   }
   return ret;
@@ -818,7 +818,7 @@ rtError JSObjectWrapper::Get(uint32_t i, rtValue* value) const
 rtError JSObjectWrapper::Set(const char* name, const rtValue* value)
 {
   RtJSC::assertIsMainThread();
-  if (!m_contextRef) {
+  if (!context()) {
     rtLogWarn("Lost JS context!");
     return RT_FAIL;
   }
@@ -826,13 +826,13 @@ rtError JSObjectWrapper::Set(const char* name, const rtValue* value)
     return RT_FAIL;
   if (m_isArray)
     return RT_PROP_NOT_FOUND;
-  JSValueRef valueRef = rtToJs(m_contextRef, *value);
+  JSValueRef valueRef = rtToJs(context(), *value);
   JSValueRef exc = nullptr;
   JSStringRef namePtr = JSStringCreateWithUTF8CString(name);
-  JSObjectSetProperty(m_contextRef, m_object, namePtr, valueRef, kJSPropertyAttributeNone, &exc);
+  JSObjectSetProperty(context(), wrapped(), namePtr, valueRef, kJSPropertyAttributeNone, &exc);
   JSStringRelease(namePtr);
   if (exc) {
-    printException(m_contextRef, exc);
+    printException(context(), exc);
     return RT_FAIL;
   }
   return RT_OK;
@@ -843,25 +843,25 @@ rtError JSObjectWrapper::Set(uint32_t i, const rtValue* value)
   RtJSC::assertIsMainThread();
   if (!value)
     return RT_FAIL;
-  JSValueRef valueRef = rtToJs(m_contextRef, *value);
+  JSValueRef valueRef = rtToJs(context(), *value);
   JSValueRef exc = nullptr;
-  JSObjectSetPropertyAtIndex(m_contextRef, m_object, i, valueRef, &exc);
+  JSObjectSetPropertyAtIndex(context(), wrapped(), i, valueRef, &exc);
   if (exc) {
-    printException(m_contextRef, exc);
+    printException(context(), exc);
     return RT_FAIL;
   }
   return RT_OK;
 }
 
 JSFunctionWrapper::JSFunctionWrapper(JSContextRef context, JSObjectRef thisObj, JSObjectRef funcObj)
-  : rtJSCProtected(context, funcObj)
+  : rtJSCWrapperBase(context, funcObj)
   , m_thisObj(context, thisObj)
 {
   RtJSC::assertIsMainThread();
 }
 
 JSFunctionWrapper::JSFunctionWrapper(JSContextRef context, JSObjectRef funcObj)
-  : rtJSCProtected(context, funcObj)
+  : rtJSCWrapperBase(context, funcObj)
 {
   RtJSC::assertIsMainThread();
 }
@@ -874,7 +874,7 @@ JSFunctionWrapper::~JSFunctionWrapper()
 rtError JSFunctionWrapper::Send(int numArgs, const rtValue* args, rtValue* result)
 {
   RtJSC::assertIsMainThread();
-  if (!m_contextRef || !m_object) {
+  if (!context() || !wrapped()) {
     rtLogWarn("Lost JS context!");
     return RT_FAIL;
   }
@@ -886,19 +886,19 @@ rtError JSFunctionWrapper::Send(int numArgs, const rtValue* args, rtValue* resul
   if (numArgs) {
     for (int i = 0; i < numArgs; ++i) {
       const rtValue &rtVal = args[i];
-      jsArgs[i] = rtToJs(m_contextRef, rtVal);
+      jsArgs[i] = rtToJs(context(), rtVal);
     }
   }
   JSValueRef exception = nullptr;
-  JSValueRef jsResult = JSObjectCallAsFunction(m_contextRef, m_object, m_thisObj.wrapped(), numArgs, jsArgs, &exception);
+  JSValueRef jsResult = JSObjectCallAsFunction(context(), wrapped(), m_thisObj.wrapped(), numArgs, jsArgs, &exception);
   if (exception) {
-    printException(m_contextRef, exception);
-    JSGlobalContextRelease(m_contextRef);
+    printException(context(), exception);
+    JSGlobalContextRelease(context());
     return RT_FAIL;
   }
   rtError ret = RT_OK;
   if (result)
-    ret = jsToRt(m_contextRef, jsResult, *result, &exception);
+    ret = jsToRt(context(), jsResult, *result, &exception);
   return ret;
 }
 

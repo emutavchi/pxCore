@@ -55,7 +55,7 @@ public:
   static rtJSCContextPrivate* fromCtx(JSGlobalContextRef contextRef);
 };
 
-class rtJSCProtected
+class rtJSCProtected final
 {
   rtJSCProtected(const rtJSCProtected&) = delete;
   rtJSCProtected& operator=(const rtJSCProtected&) = delete;
@@ -96,6 +96,21 @@ public:
 
   JSObjectRef wrapped() const;
 };
+
+class rtJSCWrapperBase
+{
+protected:
+  rtJSCProtected m_protectedObj;
+public:
+  rtJSCWrapperBase(JSContextRef context, JSObjectRef obj)
+    : m_protectedObj(context, obj)
+  { }
+  virtual ~rtJSCWrapperBase()
+  { }
+  JSObjectRef wrapped() const { return m_protectedObj.wrapped(); }
+  JSGlobalContextRef context() const { return m_protectedObj.context(); }
+};
+
 
 }  // RtJSC
 

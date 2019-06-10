@@ -73,6 +73,11 @@ void initMainLoop()
 
 void pumpMainLoop()
 {
+  static bool isPumping = false;
+  if (isPumping)
+    return;
+  isPumping = true;
+
   dispatchPending();
   dispatchTimeouts();
 
@@ -91,6 +96,7 @@ void pumpMainLoop()
     } while(ret);
   }
 #endif
+  isPumping = false;
 }
 
 static std::list<std::function<void ()>> gPendingFun;

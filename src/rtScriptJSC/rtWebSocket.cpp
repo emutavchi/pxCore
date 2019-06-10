@@ -18,7 +18,6 @@
 
 #if defined(USE_UV)
 #include "rtWebSocket.h"
-#include "rtJSCMisc.h"
 
 using std::string;
 
@@ -113,12 +112,14 @@ rtError rtWebSocket::connect()
   hub.onError(
       [&](void*)
       {
+        mWs = nullptr;
         mEmit.send("error", rtValue("connection failed"));
       });
 
   hub.onDisconnection(
       [&](uWS::WebSocket <uWS::CLIENT>* /*ws*/, int code, char* msg, size_t length)
       {
+        mWs = nullptr;
         rtString errorMsg(msg, length);
         mEmit.send("close", rtValue(code), errorMsg);
       });

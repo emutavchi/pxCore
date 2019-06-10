@@ -16,7 +16,7 @@ namespace RtJSC {
 rtError jsToRt(JSContextRef context, JSValueRef value, rtValue &result, JSValueRef *exception);
 JSValueRef rtToJs(JSContextRef context, const rtValue &rtval);
 
-class JSObjectWrapper: public RefCounted<rtIObject>, public rtJSCProtected
+class JSObjectWrapper: public RefCounted<rtIObject>, public rtJSCWrapperBase
 {
   bool m_isArray { false };
 public:
@@ -30,7 +30,7 @@ public:
   rtError Set(uint32_t i, const rtValue* value) override;
 };
 
-class JSFunctionWrapper: public RefCounted<rtIFunction>, public rtJSCProtected
+class JSFunctionWrapper: public RefCounted<rtIFunction>, public rtJSCWrapperBase
 {
   size_t hash() override { return -1; }
   void setHash(size_t hash) override { UNUSED_PARAM(hash); }
