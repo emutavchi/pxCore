@@ -237,8 +237,10 @@ if (SUPPORT_JSC)
       rtScriptJSC/rtScriptJSCPrivate.cpp
       rtScriptJSC/rtJSCWrappers.cpp
       rtScriptJSC/rtJSCMisc.cpp
-      rtScriptJSC/rtJSCBindings.cpp
-      rtScriptJSC/rtWebSocket.cpp)
+      rtScriptJSC/rtJSCBindings.cpp)
+    if (LIBUV_FOUND)
+      set(PXCORE_FILES ${PXCORE_FILES} rtScriptV8/rtWebSocket.cpp)
+    endif(LIBUV_FOUND)
 endif(SUPPORT_JSC)
 
 if (SUPPORT_V8)

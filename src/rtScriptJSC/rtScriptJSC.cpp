@@ -23,8 +23,8 @@
 #include "rtHttpRequest.h"
 #include "rtHttpResponse.h"
 
-#if defined(USE_UV)
-#include "rtWebSocket.h"
+#if defined(RTSCRIPT_SUPPORT_NODE) || defined(RTSCRIPT_SUPPORT_V8) || defined(USE_UV)
+#include "rtScriptV8/rtWebSocket.h"
 #endif
 
 #define USE_SINGLE_CTX_GROUP 1
@@ -119,7 +119,7 @@ rtError rtWebSocketBinding(int numArgs, const rtValue* args, rtValue* result, vo
     return RT_ERROR_INVALID_ARG;
   }
 
-  rtObjectRef ref = new rtWebSocket(args[0].toObject());
+  rtObjectRef ref = new rtWebSocket(args[0].toObject(), nullptr);
   *result = ref;
   return RT_OK;
 #else
@@ -198,7 +198,6 @@ rtError rtClearTimeoutBinding(int numArgs, const rtValue* args, rtValue* result,
 }
 
 #if defined(USE_SINGLE_CTX_GROUP)
-static int g_groupRefCount = 0;
 static JSContextGroupRef g_group = nullptr;
 #endif
 
@@ -244,7 +243,6 @@ rtJSCContext::rtJSCContext()
   if (nullptr == g_group)
     g_group = JSContextGroupCreate();
   m_contextGroup = JSContextGroupRetain(g_group);
-  ++g_groupRefCount;
 #else
   m_contextGroup = JSContextGroupCreate();
 #endif
@@ -277,18 +275,7 @@ rtJSCContext::~rtJSCContext()
   JSGarbageCollect(m_context);
   // JSSynchronousGarbageCollectForDebugging(m_context);
   JSGlobalContextRelease(m_context);
-
-#if defined(USE_SINGLE_CTX_GROUP)
-  if (--g_groupRefCount == 0) {
-    JSContextGroupRelease(g_group);
-    g_group=nullptr;
-  }
-#endif
-
-  RtJSC::installTimeout(1000, false, [group = m_contextGroup] {
-      JSContextGroupRelease(group);
-      return 0;
-  });
+  JSContextGroupRelease(m_contextGroup);
 
   rtLogInfo("%s end", __FUNCTION__);
 }

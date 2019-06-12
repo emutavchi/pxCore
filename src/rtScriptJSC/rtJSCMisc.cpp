@@ -128,6 +128,21 @@ std::string readFile(const char *file)
   return src_script.str();
 }
 
+std::vector<uint8_t> readBinFile(const char *file)
+{
+  std::ifstream ifs {file, std::ios::binary|std::ios::ate };
+
+  std::ifstream::pos_type len = ifs.tellg();
+  ifs.seekg(0, std::ios::beg);
+
+  std::vector<uint8_t> contents;
+  contents.reserve(len);
+  contents.resize(len);
+
+  ifs.read(reinterpret_cast<char*>(&contents[0]), len);
+  return contents;
+}
+
 bool fileExists(const char* name)
 {
   struct stat buffer;

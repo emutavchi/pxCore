@@ -13,6 +13,8 @@
 #include <chrono>
 #include <list>
 #include <cassert>
+#include <vector>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -65,6 +67,27 @@ static JSValueRef readFileCallback(JSContextRef ctx, JSObjectRef, JSObjectRef th
     if (exception && *exception)
       break;
 
+    #if 0
+    int retCode = -1;
+    JSValueRef retArr = JSValueMakeNull(ctx);
+    if ((retCode = access(path.cString(), R_OK)) == 0) {
+      auto* contents = new std::vector<uint8_t> { readBinFile(path.cString()) };
+      printf("contents = %p, size %zd\n", contents, contents->size());
+
+      retArr = JSObjectMakeArrayBufferWithBytesNoCopy(
+        ctx, contents->data(), contents->size(),
+        [](void* bytes, void* deallocatorContext) {
+          auto* contents = reinterpret_cast<std::vector<uint8_t>*>(deallocatorContext);
+          assert(contents->data() == bytes);
+          delete contents;
+        }, contents, exception);
+
+      if (exception && *exception)
+        break;
+    }
+    JSValueRef args[] = { JSValueMakeNumber(ctx, retCode), retArr };
+    result = JSObjectCallAsFunction(ctx, callbackObj, thisObject, 2, args, exception);
+    #else
     int retCode = -1;
     JSStringRef retStr = nullptr;
     if ((retCode = access(path.cString(), R_OK)) == 0) {
@@ -76,6 +99,7 @@ static JSValueRef readFileCallback(JSContextRef ctx, JSObjectRef, JSObjectRef th
     JSValueRef args[] = { JSValueMakeNumber(ctx, retCode), JSValueMakeString(ctx, retStr) };
     result = JSObjectCallAsFunction(ctx, callbackObj, thisObject, 2, args, exception);
     JSStringRelease(retStr);
+    #endif
   } while (0);
 
   if (exception && *exception) {

@@ -7,6 +7,7 @@
 
 #include <string>
 #include <functional>
+#include <vector>
 
 namespace RtJSC {
 
@@ -37,6 +38,7 @@ void printException(JSContextRef ctx, JSValueRef exception);
 rtString jsToRtString(JSStringRef str);
 bool fileExists(const char* name);
 std::string readFile(const char *file);
+std::vector<uint8_t> readBinFile(const char *file);
 
 void assertIsMainThread();
 
