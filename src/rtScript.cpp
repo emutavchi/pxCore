@@ -178,6 +178,16 @@ rtError rtScript::init()
 {
   if (false == mInitialized)
   {
+    #if defined(RTSCRIPT_SUPPORT_JSC)
+    if (!!getenv("SPARK_USE_JSC"))
+    {
+      createScriptJSC(mScript);
+      mScript->init();
+      mInitialized = true;
+      return RT_OK;
+    }
+    #endif
+
     #if defined(RTSCRIPT_SUPPORT_NODE) && defined(RTSCRIPT_SUPPORT_DUKTAPE) 
       static int useDuktape = -1;
     
