@@ -135,7 +135,7 @@ void pxResource::addListener(pxResourceListener* pListener)
     /* need not pass archive here, as this flow go for network downloads */
     loadResource();
   }
-  else if( !downloadRequestActive)
+  else if( !downloadRequestActive && mUrl.compare("-") != 0)
   {
     rtValue statusCode = getLoadStatus("statusCode");
     //rtLogDebug("download was not active for: %s code: %d", mUrl.cString(), statusCode.toInt32());
@@ -281,6 +281,24 @@ void pxResource::raiseDownloadPriority()
 /**********************************************************************/
 /**********************************************************************/
 
+bool rtUpdateImageResource(rtObjectRef ref, uint8_t* ptr, uint32_t w, uint32_t h);
+
+bool rtUpdateImageResource(rtObjectRef ref, uint8_t* ptr, uint32_t w, uint32_t h)
+{
+  rtImageResource& imgRes = *((rtImageResource*)ref.getPtr());
+  pxTextureRef tex = imgRes.getTexture();
+  if (tex) {
+    tex->updateTexture(0,0,w,h,ptr);
+  } else {
+    pxOffscreen o;
+    o.initWithColor(w, h, pxRed);
+    o.mPixelFormat = RT_PIX_RGBA;
+    memcpy(o.base(), ptr, w*h*4);
+    imgRes.createWithOffscreen(o);
+  }
+  imgRes.notifyListenersResourceDirty();
+  return true;
+}
 
 rtImageResource::rtImageResource()
 : pxResource(), mTexture(), mDownloadedTexture(), mTextureMutex(), mDownloadComplete(false), init_w(0), init_h(0), init_sx(0.0f), init_sy(0.0f), mData()

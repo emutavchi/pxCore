@@ -1,9 +1,11 @@
 #include "rtJSCBindings.h"
+#include "rtJSCWrappers.h"
 #include "rtJSCMisc.h"
 #include "rtScriptJSCPrivate.h"
 #include "rtLog.h"
 
 #include "pxTimer.h"
+#include "rtValue.h"
 
 #include <unistd.h>
 #include <stdio.h>
@@ -24,6 +26,8 @@ JS_EXPORT JSGlobalContextRef JSObjectGetGlobalContext(JSObjectRef object);
 #ifdef __cplusplus
 }
 #endif
+
+bool rtUpdateImageResource(rtObjectRef ref, uint8_t* ptr, uint32_t w, uint32_t h);
 
 namespace RtJSC {
 
@@ -49,6 +53,77 @@ static JSValueRef hrTimeCallback(JSContextRef ctx, JSObjectRef, JSObjectRef, siz
   return JSObjectMakeArray(ctx, 2, args, exception);
 }
 
+static JSValueRef updateImageResource(JSContextRef ctx, JSObjectRef fun, JSObjectRef, size_t argumentCount, const JSValueRef arguments[], JSValueRef *exception)
+{
+  if (argumentCount != 4)
+    return JSValueMakeUndefined(ctx);
+
+  rtLogDebug("updateImageResource");
+  do {
+    rtValue tmp;
+    rtError rc = RtJSC::jsToRt(ctx, arguments[0], tmp, exception);
+    if (rc != RT_OK) {
+      rtLogError("jsToRt failed");
+      break;
+    }
+    if (tmp.getType() != RT_objectType) {
+      rtLogError("Incorrect type");
+      break;
+    }
+    if (exception && *exception)
+      break;
+
+    rtObjectRef o = tmp.toObject();
+    rtString desc;
+    o.sendReturns("description",desc);
+    if(desc.compare("rtImageResource") != 0) {
+      rtLogError("Not rtImageResource, desc = %s", desc.cString());
+      break;
+    }
+    JSTypedArrayType arrType = JSValueGetTypedArrayType(ctx, arguments[1], exception);
+    if (exception && *exception)
+      break;
+    if (arrType != kJSTypedArrayTypeUint8Array) {
+      rtLogError("Incorrect buff type = %d", arrType);
+      break;
+    }
+
+    JSObjectRef rgbBuffer = JSValueToObject(ctx, arguments[1], exception);
+    if (exception && *exception)
+      break;
+
+    uint8_t *buff = (uint8_t *)JSObjectGetTypedArrayBytesPtr(ctx, rgbBuffer, exception);
+    if (exception && *exception)
+      break;
+
+    size_t buffSize  = JSObjectGetTypedArrayByteLength(ctx, rgbBuffer, exception);
+    if (exception && *exception)
+      break;
+
+    uint32_t d_w = (uint32_t)JSValueToNumber(ctx, arguments[2], exception);
+    if (exception && *exception)
+      break;
+
+    uint32_t d_h = (uint32_t)JSValueToNumber(ctx, arguments[3], exception);
+    if (exception && *exception)
+      break;
+
+    if (buffSize != d_w * d_h * 4) {
+      rtLogError("Incorrect buff size %zd != %zd", buffSize, (size_t)d_w * d_h * 4);
+      break;
+    }
+
+    rtUpdateImageResource(o, buff, d_w, d_h);
+  } while (0);
+
+  if (exception && *exception) {
+    printException(ctx, *exception);
+    return JSValueMakeUndefined(ctx);
+  }
+
+  return JSValueMakeUndefined(ctx);
+}
+
 static JSValueRef readFileCallback(JSContextRef ctx, JSObjectRef, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef *exception)
 {
   if (argumentCount != 2)
@@ -67,7 +142,7 @@ static JSValueRef readFileCallback(JSContextRef ctx, JSObjectRef, JSObjectRef th
     if (exception && *exception)
       break;
 
-    #if 0
+    #if 1
     int retCode = -1;
     JSValueRef retArr = JSValueMakeNull(ctx);
     if ((retCode = access(path.cString(), R_OK)) == 0) {
@@ -424,6 +499,7 @@ void injectBindings(JSContextRef jsContext)
   injectFun(jsContext, "_readFile", readFileCallback);
   injectFun(jsContext, "_runInNewContext", runInNewContext);
   injectFun(jsContext, "_runInContext", runInContext);
+  injectFun(jsContext, "_updateImageResource", updateImageResource);
 
   markJSContext(jsContext, nullptr, nullptr);
 }

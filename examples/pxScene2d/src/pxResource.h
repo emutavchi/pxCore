@@ -113,6 +113,7 @@ public:
   virtual uint64_t textureMemoryUsage(std::vector<rtObject*> &objectsCounted);
   void setCORS(const rtCORSRef& cors) { mCORS = cors; }
   void setName(rtString name) { mName = name; }
+  void notifyListenersResourceDirty();
 protected:   
   static void onDownloadComplete(rtFileDownloadRequest* downloadRequest);
   static void onDownloadCompleteUI(void* context, void* data);
@@ -122,7 +123,6 @@ protected:
   virtual uint32_t loadResourceData(rtFileDownloadRequest* fileDownloadRequest) = 0;
   
   void notifyListeners(rtString readyResolution);
-  void notifyListenersResourceDirty();
 
   virtual void loadResourceFromFile() = 0;
   virtual void loadResourceFromArchive(rtObjectRef archiveRef) = 0;

@@ -437,6 +437,7 @@ AppSceneContext.prototype.runScriptInNewVMContext = function (packageUri, module
         setInterval: setInterval,
         clearInterval: clearInterval,
         process: process,
+        _updateImageResource: _updateImageResource,
         // print: print,
         theNamedContext: "Sandbox: " + uri,
         importTracking: {}
@@ -636,7 +637,7 @@ AppSceneContext.prototype.include = function(filePath, currentXModule) {
   var origFilePath = filePath;
 
   return new Promise(function (onImportComplete, reject) {
-    if (/^(px|url|querystring|htmlparser|crypto|oauth)$/.test(filePath)) {
+    if (/^(px|url|fs|querystring|htmlparser|crypto|oauth)$/.test(filePath)) {
       if (isDuk && filePath === 'htmlparser') {
         console.log("Not permitted to use the module " + filePath);
         reject("include failed due to module not permitted");

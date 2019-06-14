@@ -1004,6 +1004,19 @@ public:
     return PX_OK;
   }
 
+  virtual pxError updateTexture(int x, int y, int w, int h,  void* buffer)
+  {
+    if (!mInitialized)
+    {
+      return PX_NOTINITIALIZED;
+    }
+
+    glBindTexture(GL_TEXTURE_2D, mTextureName);   TRACK_TEX_CALLS();
+    glTexSubImage2D(GL_TEXTURE_2D, 0,x,y,w,h, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+
+    return PX_OK;
+  }
+
   virtual pxError getOffscreen(pxOffscreen& /*o*/)
   {
     return PX_OK;
