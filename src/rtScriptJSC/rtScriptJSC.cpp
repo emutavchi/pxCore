@@ -24,7 +24,7 @@
 #include "rtHttpResponse.h"
 
 #ifndef ENABLE_V8_WEBSOCKET
-# if defined(RTSCRIPT_SUPPORT_NODE) || defined(RTSCRIPT_SUPPORT_V8) || defined(USE_UV)
+# if defined(RTSCRIPT_SUPPORT_V8) || defined(USE_UV)
 #  define ENABLE_V8_WEBSOCKET 1
 # endif
 #endif
