@@ -238,9 +238,9 @@ if (SUPPORT_JSC)
       rtScriptJSC/rtJSCWrappers.cpp
       rtScriptJSC/rtJSCMisc.cpp
       rtScriptJSC/rtJSCBindings.cpp)
-    if (LIBUV_FOUND AND NOT SUPPORT_V8)
+    if ((LIBUV_FOUND OR SUPPORT_NODE) AND NOT SUPPORT_V8)
       set(PXCORE_FILES ${PXCORE_FILES} rtScriptV8/rtWebSocket.cpp)
-    endif(LIBUV_FOUND AND NOT SUPPORT_V8)
+    endif((LIBUV_FOUND OR SUPPORT_NODE) AND NOT SUPPORT_V8)
 endif(SUPPORT_JSC)
 
 if (SUPPORT_V8)
