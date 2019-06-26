@@ -15,16 +15,6 @@
 #include <cassert>
 #include <vector>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-JS_EXPORT JSGlobalContextRef JSObjectGetGlobalContext(JSObjectRef object);
-
-#ifdef __cplusplus
-}
-#endif
-
 namespace RtJSC {
 
 static JSValueRef noopCallback(JSContextRef ctx, JSObjectRef fun, JSObjectRef, size_t argumentCount, const JSValueRef arguments[], JSValueRef *exception)
@@ -72,8 +62,6 @@ static JSValueRef readFileCallback(JSContextRef ctx, JSObjectRef, JSObjectRef th
     JSValueRef retArr = JSValueMakeNull(ctx);
     if ((retCode = access(path.cString(), R_OK)) == 0) {
       auto* contents = new std::vector<uint8_t> { readBinFile(path.cString()) };
-      printf("contents = %p, size %zd\n", contents, contents->size());
-
       retArr = JSObjectMakeArrayBufferWithBytesNoCopy(
         ctx, contents->data(), contents->size(),
         [](void* bytes, void* deallocatorContext) {
@@ -242,11 +230,62 @@ static void markJSContext(JSContextRef ctx, JSObjectRef globalObj, JSValueRef *e
   JSObjectSetProperty(globalCtx, globalObj, globalName, globalObj, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, nullptr);
 }
 
-static JSStringRef sandboxGlobalPrivateName()
+class SandboxPrivate
 {
-  static JSStringRef nameStr = JSStringCreateWithUTF8CString("__rt_sanbox_global");
-  return nameStr;
-}
+  rtJSCProtected m_protectedObj;
+
+  SandboxPrivate(JSContextRef context, JSObjectRef obj)
+    : m_protectedObj(context, obj)
+  {
+  }
+
+  static void SandboxPrivate_finalize(JSObjectRef obj)
+  {
+    SandboxPrivate *priv = (SandboxPrivate *)JSObjectGetPrivate(obj);
+    JSObjectSetPrivate(obj, nullptr);
+    delete priv;
+  }
+
+  static JSClassRef privateClass()
+  {
+    static JSClassRef sClassRef = nullptr;
+    if (!sClassRef) {
+      JSClassDefinition classDef = { 0 };
+      classDef.finalize = SandboxPrivate_finalize;
+      sClassRef = JSClassCreate(&classDef);
+    }
+    return sClassRef;
+  }
+
+public:
+  JSObjectRef wrapped() const { return m_protectedObj.wrapped(); }
+  JSGlobalContextRef context() const { return m_protectedObj.context(); }
+
+  static JSStringRef privateName()
+  {
+    static JSStringRef nameStr = JSStringCreateWithUTF8CString("__rt_sanbox_priv");
+    return nameStr;
+  }
+
+  static SandboxPrivate* from(JSContextRef ctx, JSObjectRef sandboxRef, JSValueRef *exception)
+  {
+    JSValueRef sandboxPrivRef = JSObjectGetProperty(ctx, sandboxRef, privateName(), exception);
+    if (exception && *exception)
+      return nullptr;
+    JSObjectRef sandboxPriv = JSValueToObject(ctx, sandboxPrivRef,  exception);
+    if (exception && *exception)
+      return nullptr;
+    return (SandboxPrivate*)JSObjectGetPrivate(sandboxPriv);
+  }
+
+  static void init(JSContextRef ctx, JSObjectRef sandboxRef, JSContextRef sandboxCtx, JSObjectRef sandboxGlobal, JSValueRef *exception)
+  {
+    auto priv = new SandboxPrivate(sandboxCtx, sandboxGlobal);
+    auto sandboxPriv = JSObjectMake(ctx, privateClass(), priv);
+    JSObjectSetProperty(ctx, sandboxRef, privateName(), sandboxPriv,
+                        kJSPropertyAttributeDontEnum | kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, exception);
+  }
+};
 
 static JSValueRef runInContext(JSContextRef ctx, JSObjectRef, JSObjectRef thisobj, size_t argumentCount, const JSValueRef arguments[], JSValueRef *exception)
 {
@@ -260,18 +299,25 @@ static JSValueRef runInContext(JSContextRef ctx, JSObjectRef, JSObjectRef thisob
     if (exception && *exception)
       break;
 
-    JSObjectRef sandboxGlobalObj = nullptr;
-
-    JSValueRef sandboxGlobalRef = JSObjectGetProperty(ctx, sandboxRef, sandboxGlobalPrivateName(), nullptr);
-    if (sandboxGlobalRef && JSValueIsObject(ctx, sandboxGlobalRef))
-      sandboxGlobalObj = JSValueToObject(ctx, sandboxGlobalRef,  nullptr);
+    SandboxPrivate* priv = SandboxPrivate::from(ctx, sandboxRef, exception);
+    if (exception && *exception)
+      break;
 
     JSGlobalContextRef sandboxCtx = nullptr;
-    if (sandboxGlobalObj)
-      sandboxCtx = JSObjectGetGlobalContext(sandboxGlobalObj);
+    JSObjectRef sandboxGlobalObj = nullptr;
+    if (priv) {
+      sandboxGlobalObj = priv->wrapped();
+      sandboxCtx = priv->context();
+    }
 
-    if (!sandboxCtx)
-      sandboxCtx = JSContextGetGlobalContext(ctx);
+    if (!sandboxCtx) {
+      // sandboxCtx = JSContextGetGlobalContext(ctx);
+      if (exception) {
+        static JSStringRef exceptionStr = JSStringCreateWithUTF8CString("No sandbox context");
+        *exception = JSValueMakeString(ctx, exceptionStr);
+      }
+      break;
+    }
 
     // code
     JSStringRef codeStr = JSValueToStringCopy(ctx, arguments[0], exception);
@@ -390,9 +436,10 @@ static JSValueRef runInNewContext(JSContextRef ctx, JSObjectRef, JSObjectRef thi
 
     JSValueRef args[] = { arguments[3], arguments[4] };
     result = JSObjectCallAsFunction(newCtx, funcObj, newGlobalObj, 2, args, exception);
+    if (exception && *exception)
+      break;
 
-    JSObjectSetProperty(ctx, sandboxRef, sandboxGlobalPrivateName(), newGlobalObj,
-                        kJSPropertyAttributeDontEnum | kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, exception);
+    SandboxPrivate::init(ctx, sandboxRef, newCtx, newGlobalObj, exception);
   } while (0);
 
   JSGlobalContextRelease(newCtx);
