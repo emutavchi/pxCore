@@ -893,7 +893,6 @@ rtError JSFunctionWrapper::Send(int numArgs, const rtValue* args, rtValue* resul
   JSValueRef jsResult = JSObjectCallAsFunction(context(), wrapped(), m_thisObj.wrapped(), numArgs, jsArgs, &exception);
   if (exception) {
     printException(context(), exception);
-    JSGlobalContextRelease(context());
     return RT_FAIL;
   }
   rtError ret = RT_OK;
