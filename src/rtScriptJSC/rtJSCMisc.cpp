@@ -25,6 +25,12 @@
 #include <glib.h>
 #endif
 
+#if !defined(USE_UV)
+#if defined(RTSCRIPT_SUPPORT_NODE) || defined(RTSCRIPT_SUPPORT_V8)
+#define USE_UV 1
+#endif
+#endif
+
 #if defined(USE_UV)
 #include <uv.h>
 #endif
@@ -82,10 +88,7 @@ void pumpMainLoop()
   dispatchTimeouts();
 
 #if defined(USE_UV)
-  {
-    auto uvloop = uv_default_loop();
-    uv_run(uvloop, UV_RUN_NOWAIT);
-  }
+  uv_run(uv_default_loop(), UV_RUN_NOWAIT);
 #endif
 
 #if defined(USE_GLIB)

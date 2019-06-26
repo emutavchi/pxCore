@@ -23,11 +23,15 @@
 #include "rtHttpRequest.h"
 #include "rtHttpResponse.h"
 
-#if defined(RTSCRIPT_SUPPORT_NODE) || defined(RTSCRIPT_SUPPORT_V8) || defined(USE_UV)
-#include "rtScriptV8/rtWebSocket.h"
+#ifndef ENABLE_V8_WEBSOCKET
+# if defined(RTSCRIPT_SUPPORT_NODE) || defined(RTSCRIPT_SUPPORT_V8) || defined(USE_UV)
+#  define ENABLE_V8_WEBSOCKET 1
+# endif
 #endif
 
-#define USE_SINGLE_CTX_GROUP 1
+#if defined(ENABLE_V8_WEBSOCKET) && ENABLE_V8_WEBSOCKET
+#include "rtScriptV8/rtWebSocket.h"
+#endif
 
 extern "C" JS_EXPORT void JSSynchronousGarbageCollectForDebugging(JSContextRef);
 
@@ -108,7 +112,7 @@ rtError rtHttpGetBinding(int numArgs, const rtValue* args, rtValue* result, void
 rtError rtWebSocketBinding(int numArgs, const rtValue* args, rtValue* result, void* context)
 {
   UNUSED_PARAM(context);
-#if defined(USE_UV)
+#if defined(ENABLE_V8_WEBSOCKET)
   if (numArgs < 1) {
     rtLogError("%s: invalid args", __FUNCTION__);
     return RT_ERROR_INVALID_ARG;
@@ -141,7 +145,7 @@ rtError rtInstallTimeout(int numArgs, const rtValue* args, rtValue* result, bool
   }
 
   double interval = 0;
-  if (numArgs >=2)
+  if (numArgs >= 2)
     interval = args[1].toDouble();
 
   rtFunctionRef timeoutCb = args[0].toFunction();
@@ -197,9 +201,11 @@ rtError rtClearTimeoutBinding(int numArgs, const rtValue* args, rtValue* result,
   return RT_OK;
 }
 
-#if defined(USE_SINGLE_CTX_GROUP)
-static JSContextGroupRef g_group = nullptr;
-#endif
+JSContextGroupRef globalContextGroup()
+{
+  static JSContextGroupRef gGroupRef = JSContextGroupCreate();
+  return gGroupRef;
+}
 
 }  // namespace
 
@@ -239,13 +245,7 @@ private:
 rtJSCContext::rtJSCContext()
 {
   rtLogInfo(__FUNCTION__);
-#if defined(USE_SINGLE_CTX_GROUP)
-  if (nullptr == g_group)
-    g_group = JSContextGroupCreate();
-  m_contextGroup = JSContextGroupRetain(g_group);
-#else
-  m_contextGroup = JSContextGroupCreate();
-#endif
+  m_contextGroup = JSContextGroupRetain(globalContextGroup());
   m_context = JSGlobalContextCreateInGroup(m_contextGroup, nullptr);
   m_priv = rtJSCContextPrivate::create(m_context);
 
